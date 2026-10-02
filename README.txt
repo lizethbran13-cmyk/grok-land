@@ -1,7 +1,24 @@
-GROK LAND
-=========
+GROK LAND 2.0
+=============
 A bright, chunky low-poly 3D platformer with puzzles, enemies, coins and
 hidden stars. It runs from pure static files and needs no build step and no CDN.
+
+WHAT'S NEW IN 2.0
+-----------------
+  - 3 new worlds (6 total): FROSTBITE PEAKS, GHOST MANOR, CLOCKWORK FACTORY,
+    each with its own puzzle, new enemies or hazards, and 3 hidden stars
+    (18 stars total).
+  - WORLD MAP: choose any world from the title screen. It shows the stars
+    found in each world, plus NEW and cleared badges.
+  - Fairer play: more checkpoints, longer coyote time and jump buffer, more
+    air control, ledge assist (a jump that just clips a lip pops you up),
+    falling off now returns you to the last safe ground instead of the
+    checkpoint, longer invulnerability after a hit, and softer early enemies.
+  - Drop shadow: a darker blob shadow, plus a white landing ring under you
+    while you are in the air.
+  - EASY MODE (toggle on the title screen): 5 hearts, infinite lives, extra
+    ledge help, slower new enemies, and longer candle timers.
+  - Best clear time is saved per world. 1.x saves carry over.
 
 HOW TO RUN
 ----------
@@ -42,14 +59,15 @@ CONTROLS - MOBILE / TOUCH (auto-detected)
   ACTION button .......... spin / long jump / ground pound
   Drag on the right side . rotate the camera
   Pause button ........... top of the screen
+  World map / Easy ....... buttons on the title screen
 
 RULES
 -----
-  - 3 hearts, 5 lives. Touching an enemy or hazard costs a heart.
+  - 3 hearts, 5 lives (Easy mode: 5 hearts, infinite lives). Touching an enemy or hazard costs a heart.
   - Stomp walkers and bees by landing on them. Spiky enemies can't be stomped,
     so avoid them.
   - Falling in water or off the world costs a heart and returns you to the
-    last checkpoint. Lava costs a heart and bounces you back to safe ground.
+    last solid ground you stood on. Lava costs a heart and bounces you back to safe ground.
   - Checkpoint flags save your spot and refill your hearts.
   - Every 10 coins in a level heals a heart, and every 50 coins total gives an extra
     life. Green 1-UP mushrooms and ? blocks also hold goodies.
@@ -86,6 +104,33 @@ LEVELS
    Also:     firebars, falling platforms, moving platform, a long-jump star,
              a spring up the tower to the goal star.
    Tip: ride the crusher up for a secret star.
+
+4. FROSTBITE PEAKS (ice and snow)  NEW
+   Puzzle:   ICE CRATE RINK. One shove slides the crate until it hits
+             something. Bounce it off the rocks so it stops on the switch,
+             which opens the gate (the blue pad resets the crate).
+   Enemies:  snowmen (lob arcing snowballs), penguins (belly-slide charge).
+   Hazards:  slippery ice, falling icicles under the arches.
+   Stars:    a secret staircase that appears when you get close, an icy arch
+             reached from a spring, and an ice pillar reached from the
+             parked crate.
+
+5. GHOST MANOR (haunted night)  NEW
+   Puzzle:   CANDLES. Ground pound each of the 4 candles to light it, and
+             get all 4 lit before any of them burns out to open the manor door.
+   Enemies:  ghosts creep up when your back is turned and freeze when you
+             face them. They can't be stomped, so spin them.
+   Hazards:  phantom floors that fade in and out.
+   Stars:    secret steps, the chandelier (spring), and a hidden crypt.
+
+6. CLOCKWORK FACTORY (gears and conveyors)  NEW
+   Puzzle:   LEVER LIGHTS. Each lever flips some of the 3 lamps over the
+             gate. Light all three to open it.
+   Enemies:  robots. They spark every few seconds, so stomp or spin them
+             between sparks.
+   Hazards:  conveyor belts, a sideways belt with a piston, spinning gears.
+   Stars:    a ledge beside the piston, secret blocks past the second gear,
+             and the crane (spring).
 
 Everything in the game is procedural: models are built from three.js
 primitives and all sound and music is synthesized with WebAudio, so there

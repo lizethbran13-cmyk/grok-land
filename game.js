@@ -26,11 +26,18 @@ let IS_TOUCH = matchMedia('(pointer: coarse)').matches || (('ontouchstart' in wi
 // Save data
 // =====================================================================
 const SAVE_KEY = 'grokland_v1';
-const save = { stars: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], cleared: [0, 0, 0], bestCoins: [0, 0, 0], muted: false };
+const NUM_LEVELS = 6;
+const save = { stars: [], cleared: [], bestCoins: [], bestTime: [], muted: false, easy: false, seen2: false };
 try {
   const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
   if (s && Array.isArray(s.stars)) Object.assign(save, s);
 } catch (e) { /* ignore */ }
+// 2.0: v1 saves only had 3 worlds; pad every per-world array so old progress carries over.
+for (const k of ['stars', 'cleared', 'bestCoins', 'bestTime']) { if (!Array.isArray(save[k])) save[k] = []; }
+for (let i = 0; i < NUM_LEVELS; i++) {
+  if (!Array.isArray(save.stars[i])) save.stars[i] = [0, 0, 0];
+  save.cleared[i] = save.cleared[i] || 0; save.bestCoins[i] = save.bestCoins[i] || 0; save.bestTime[i] = save.bestTime[i] || 0;
+}
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } }
 
 // =====================================================================
@@ -112,6 +119,17 @@ const Snd = (() => {
     clear() { arp([67, 72, 76, 79, 84, 88], 0.1, 'square', 0.08, 0.2); arp([79, 84, 88, 91], 0.14, 'square', 0.08, 0.5); arp([48, 52, 55, 60, 64, 67], 0.12, 'triangle', 0.14); },
     gameover() { arp([72, 67, 64, 69, 71, 69, 68, 70, 68, 67], 0.16, 'triangle', 0.14); },
     pause() { tone(988, 0.06, 'square', 0.06); tone(740, 0.08, 'square', 0.06, null, 0.07); },
+    throwSnow() { noise(0.12, 0.12, 1800); tone(420, 0.12, 'triangle', 0.07, 220); },
+    crack() { noise(0.18, 0.2, 3800, 0, null, 'highpass'); tone(1600, 0.1, 'square', 0.04, 900); },
+    shatter() { noise(0.35, 0.25, 4200, 0, null, 'highpass'); arp([96, 91, 88], 0.04, 'triangle', 0.06); },
+    ghost() { tone(520, 0.6, 'sine', 0.07, 380); tone(530, 0.6, 'sine', 0.05, 370, 0.05); },
+    boo() { tone(300, 0.3, 'triangle', 0.12, 900); noise(0.25, 0.08, 2600, 0, null, 'highpass'); },
+    candle() { noise(0.25, 0.15, 900); arp([76, 83], 0.07, 'triangle', 0.12); },
+    candleOut() { noise(0.4, 0.12, 500); tone(300, 0.3, 'sine', 0.06, 150); },
+    spark() { noise(0.2, 0.12, 5000, 0, null, 'highpass'); tone(1800, 0.08, 'square', 0.03, 2400); },
+    lever() { tone(180, 0.08, 'square', 0.12, 120); noise(0.12, 0.15, 600); tone(660, 0.1, 'triangle', 0.08, null, 0.08); },
+    slide() { noise(0.3, 0.1, 2400, 0, null, 'bandpass'); },
+    secret() { arp([79, 83, 86, 91], 0.06, 'triangle', 0.09); },
   };
 
   // ---- music ----
@@ -133,6 +151,24 @@ const Snd = (() => {
       mel: [69, 0, 72, 69, 76, 0, 74, 72, 71, 0, 74, 71, 76, 0, 74, 71, 69, 0, 72, 69, 77, 0, 76, 74, 76, 0, 0, 0, 68, 0, 71, 0,
         69, 0, 72, 76, 81, 0, 79, 77, 76, 0, 74, 72, 74, 0, 71, 0, 72, 0, 69, 72, 77, 76, 74, 71, 69, 0, 0, 0, 64, 0, 68, 0],
       chords: [45, 45, 43, 43, 41, 41, 40, 40], minor: [1, 1, 0, 0, 0, 0, 0, 0],
+    },
+    { // FROSTBITE PEAKS — twinkly D major
+      bpm: 132,
+      mel: [74, 0, 78, 81, 86, 0, 85, 83, 81, 0, 78, 0, 76, 0, 78, 0, 79, 0, 83, 0, 81, 79, 78, 0, 76, 0, 0, 0, 73, 0, 76, 0,
+        74, 0, 78, 81, 86, 0, 88, 86, 85, 0, 83, 81, 79, 0, 78, 0, 76, 0, 79, 78, 76, 0, 73, 0, 74, 0, 0, 0, 0, 0, 0, 0],
+      chords: [50, 55, 47, 45, 50, 43, 45, 50], minor: [0, 0, 1, 0, 0, 0, 0, 0],
+    },
+    { // GHOST MANOR — spooky E minor waltz-ish
+      bpm: 118,
+      mel: [64, 0, 67, 0, 71, 0, 70, 0, 69, 0, 67, 0, 66, 0, 0, 0, 64, 0, 67, 71, 76, 0, 75, 0, 72, 0, 71, 0, 0, 0, 0, 0,
+        71, 0, 72, 71, 69, 0, 67, 0, 66, 0, 67, 69, 71, 0, 63, 0, 64, 0, 67, 0, 66, 0, 63, 0, 64, 0, 0, 0, 0, 0, 0, 0],
+      chords: [40, 40, 48, 47, 40, 45, 47, 40], minor: [1, 1, 0, 0, 1, 1, 0, 1],
+    },
+    { // CLOCKWORK FACTORY — busy G mixolydian
+      bpm: 156,
+      mel: [67, 67, 0, 74, 0, 72, 71, 0, 69, 0, 71, 72, 74, 0, 77, 0, 76, 76, 0, 72, 0, 74, 72, 0, 71, 0, 69, 0, 67, 0, 0, 0,
+        67, 67, 0, 74, 0, 77, 76, 0, 74, 0, 72, 74, 76, 0, 79, 0, 77, 0, 76, 74, 72, 0, 71, 0, 67, 0, 69, 0, 71, 0, 0, 0],
+      chords: [43, 43, 41, 41, 48, 48, 43, 50], minor: [0, 0, 0, 0, 0, 0, 0, 0],
     },
   ];
   let musicTimer = null, song = null, step = 0, nextTime = 0, pendingSong = null;
@@ -497,6 +533,9 @@ let shakeAmt = 0;
 // Player state (defined early; entities read it)
 const RUN = 9.5, G_UP = 40, G_DOWN = 52, JUMP_V = 14.8, DJUMP_V = 13.4, SPRING_V = 24, MAX_FALL = 32,
   PUSH_SPEED = 3.2, LONG_H = 17, LONG_V = 11.5, STEP_H = 0.36, G_LAVA = 38;
+// 2.0 fairness: longer coyote time + jump buffer, ledge assist (landing tolerance), stronger air control
+const COYOTE = 0.17, JUMP_BUF = 0.17, AIR_ACCEL = 40, AIR_ACCEL_LONG = 15, HURT_INVULN = 2.0;
+const ledgeAssist = () => (save.easy ? 0.75 : 0.5);
 const P = {
   pos: new V3(), vel: new V3(), r: 0.4, h: 1.5, facing: 0, grounded: false, ground: null, wasGrounded: false,
   coyote: 0, jumpBuf: 0, canDouble: false, jumping: false, springing: false, state: 'normal', stateT: 0,
@@ -629,6 +668,13 @@ const STYLE = {
   crystal: { side: 0x8ef0ff, top: 0xd6fbff, cap: 0, emissive: 0x1f7f99 },
   dark: { side: 0x4a3b52, top: 0x6a5872, cap: 0.25 },
   gold: { side: 0xffc93c, top: 0xffe38a, cap: 0.2, emissive: 0x4a3200 },
+  snow: { side: 0xb9c9de, top: 0xffffff, cap: 0.42, emissive: 0x1a2230 },
+  ice: { side: 0x7fc8f0, top: 0xcff2ff, cap: 0.12, emissive: 0x1a4a66 },
+  rock: { side: 0x6f7a90, top: 0xe8f0ff, cap: 0.25 },
+  grave: { side: 0x463c5a, top: 0x4f6a48, cap: 0.3 },
+  manor: { side: 0x5a4a6e, top: 0x7c6a92, cap: 0.22 },
+  metal: { side: 0x4a525e, top: 0x7a8592, cap: 0.16 },
+  brass: { side: 0xb07a25, top: 0xe2b453, cap: 0.16, emissive: 0x2a1800 },
 };
 function styledMesh(w, h, d, style) {
   const st = STYLE[style] || STYLE.stone;
@@ -668,7 +714,7 @@ function addIsland(x, top, z, w, d, style, h, opts) {
   h = h || 3;
   const s = addBox(x, top, z, w, d, h, style, 'static', { noCast: true });
   const depth = Math.min(w, d) * 0.7 + 2;
-  const rockColor = (opts && opts.rock) || (style === 'cloud' ? 0xf4f0ff : 0x9a6a44);
+  const rockColor = (opts && opts.rock) || ({ cloud: 0xf4f0ff, snow: 0x8090a8, ice: 0x6aa8d0, grave: 0x3a3048, manor: 0x3a3048, metal: 0x3d4450, brass: 0x5a4020 })[style] || 0x9a6a44;
   const cone = new THREE.Mesh(G.cone6, mat(rockColor));
   cone.rotation.x = Math.PI;
   cone.scale.set(w * 0.55, depth, d * 0.55);
@@ -729,7 +775,7 @@ function addFalling(x, top, z, w, d) {
     s.t += dt;
     if (s.state === 'shake') {
       s.mesh.position.x = s.x + Math.sin(s.t * 70) * 0.07;
-      if (s.t > 0.5) { s.state = 'fall'; s.t = 0; s.vy = 0; s.mesh.position.x = s.x; }
+      if (s.t > 0.75) { s.state = 'fall'; s.t = 0; s.vy = 0; s.mesh.position.x = s.x; }
     } else if (s.state === 'fall') {
       s.vy = Math.max(s.vy - 30 * dt, -25);
       setSolidPos(s, s.x, s.y + s.vy * dt, s.z);
@@ -828,7 +874,7 @@ function addCheckpoint(x, top, z, yaw) {
     flag.rotation.y = Math.sin(W.time * 3 + x) * 0.25;
     if (cp.active) return;
     const dx = P.pos.x - x, dz = P.pos.z - z;
-    if (dx * dx + dz * dz < 2.2 && Math.abs(P.pos.y - top) < 2.5 && P.state !== 'dead') {
+    if (dx * dx + dz * dz < 4 && Math.abs(P.pos.y - top) < 2.5 && P.state !== 'dead') {
       for (const c of W.checkpoints) { c.active = false; c.flag.material = mat(0xff4d4d); }
       cp.active = true; flag.material = mat(0x59d65a, { emissive: 0x114411 });
       W.checkpoint.pos.set(x, top + 0.05, z + 0.01); W.checkpoint.yaw = cp.yaw;
@@ -905,7 +951,7 @@ function addPushBlock(x, top, z) {
 }
 function resetBlock(b) {
   burst(b.x, b.y, b.z, 0xc98a4b, 10, 4, 0.5);
-  b.x = b.home.x; b.y = b.home.y; b.z = b.home.z; b.vy = 0; b.mesh.position.copy(b.home);
+  b.x = b.home.x; b.y = b.home.y; b.z = b.home.z; b.vy = 0; b.slide = null; b.mesh.position.copy(b.home);
   burst(b.x, b.y, b.z, 0xffffff, 10, 4, 0.5);
 }
 function tryMoveBlock(b, axis, amt) {
@@ -924,6 +970,7 @@ function updatePushBlocks(dt) {
       }
       continue;
     }
+    if (b.slide) slideBlock(b, dt);
     // gravity
     b.vy = Math.max(b.vy - 40 * dt, -30);
     const ny = b.y + b.vy * dt;
@@ -948,7 +995,7 @@ function addPressureSwitch(x, top, z) {
   W.things.push({ update() {
     if (sw.pressed) return;
     for (const b of W.pushBlocks) {
-      if (b.seated) continue;
+      if (b.seated || b.slide) continue;
       if (Math.abs(b.x - x) < 1.05 && Math.abs(b.z - z) < 1.05 && Math.abs(b.y - b.hy - top) < 0.3) {
         b.seated = true; b.seatX = x; b.seatZ = z; sw.pressed = true;
         plate.material = mat(0x59d65a, { emissive: 0x115511 }); mark.material = mat(0x2fa84a); plate.position.y = mark.position.y = 0.05;
@@ -1263,6 +1310,384 @@ function addRiser(x, top, z, w, d, h, style, drop) {
   return s;
 }
 
+// ---------- 2.0 puzzle pieces & hazards ----------
+STYLE.phantom = { side: 0x9a7aff, top: 0xd6c8ff, cap: 0.1, emissive: 0x3a2a88 };
+function letterTex(ch, bg) {
+  return canvasTex(64, 64, (g, w, h) => {
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#1b1440'; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+    g.font = 'bold 42px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#1b1440'; g.fillText(ch, w / 2 + 2, h / 2 + 4); g.fillStyle = '#fff'; g.fillText(ch, w / 2, h / 2 + 2);
+  });
+}
+function fadeableMesh(obj) {
+  const mats = [];
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = o.material.clone(); o.material.transparent = true; o.material.depthWrite = false;
+    mats.push(o.material);
+    if (SHADOWS) o.castShadow = false;
+  });
+  return (a) => { for (const m of mats) m.opacity = a; };
+}
+// Invisible until you get close: hidden paths to secret stars.
+function addSecretBlock(x, top, z, w, d, style) {
+  const s = addBox(x, top, z, w, d, 0.6, style || 'crystal');
+  s.noCam = true;
+  const setA = fadeableMesh(s.mesh);
+  let a = 0, seen = false, sparkT = Math.random() * 2;
+  setA(0);
+  W.things.push({ update(dt) {
+    const dx = P.pos.x - x, dz = P.pos.z - z, dy = P.pos.y - top;
+    const d2 = dx * dx + dz * dz + dy * dy * 0.5;
+    const want = d2 < 4.8 * 4.8 ? 0.9 : 0;
+    a = lerp(a, want, damp(6, dt));
+    setA(a);
+    s.mesh.visible = a > 0.02;
+    if (want && !seen) { seen = true; Snd.S.secret(); }
+    sparkT -= dt;
+    if (sparkT <= 0) { sparkT = 1.6 + Math.random(); if (d2 < 400 && a < 0.1) burst(x + (Math.random() - 0.5) * w, top + 0.2, z + (Math.random() - 0.5) * d, 0xe8f6ff, 1, 1.2, 0.8, -0.5, 1.1); }
+  } });
+  return s;
+}
+// Ice crate: one shove and it slides until it hits something.
+function addIcePushBlock(x, top, z) {
+  const b = addPushBlock(x, top, z);
+  b.ice = true; b.slide = null; b.pushT = 0; b.lastPush = -1;
+  b.mesh.children[0].material = mat(0xbfefff, { emissive: 0x2a6a8a, transparent: true, opacity: 0.92 });
+  const e = new THREE.LineSegments(G.boxEdges, new THREE.LineBasicMaterial({ color: 0xffffff })); e.scale.setScalar(1.82); b.mesh.add(e);
+  return b;
+}
+function slideBlock(b, dt) {
+  const ax = b.slide.axis, dir = b.slide.dir, step = 10 * dt;
+  if (tryMoveBlock(b, ax, dir * step)) return;
+  let moved = 0;
+  while (moved < step && tryMoveBlock(b, ax, dir * 0.005)) moved += 0.005;
+  b.slide = null;
+  Snd.S.thud(); dust(b.x, b.y - b.hy, b.z, 6);
+  shakeAmt = Math.max(shakeAmt, 0.08);
+}
+// Icicles drop when you walk underneath, then grow back.
+function addIcicle(x, ceilY, z, groundY) {
+  const g = new THREE.Group();
+  const c1 = M(G.cone6, mat(0xcff2ff, { emissive: 0x2a6a8a, transparent: true, opacity: 0.9 }), 0.32, 1.5, 0.32); c1.rotation.x = Math.PI; g.add(c1);
+  const c2 = M(G.cone6, mat(0xffffff, { emissive: 0x446688 }), 0.16, 0.8, 0.16); c2.rotation.x = Math.PI; c2.position.y = 0.3; g.add(c2);
+  const y0 = ceilY - 0.75;
+  g.position.set(x, y0, z); W.root.add(g);
+  const ic = { state: 'idle', t: 0, y: y0, vy: 0 };
+  W.things.push({ update(dt) {
+    ic.t += dt;
+    if (ic.state === 'idle') {
+      if (P.state !== 'dead' && Math.abs(P.pos.x - x) < 1.5 && Math.abs(P.pos.z - z) < 1.5 && P.pos.y < ceilY - 1 && P.pos.y > groundY - 1.5) { ic.state = 'shake'; ic.t = 0; Snd.S.crack(); }
+    } else if (ic.state === 'shake') {
+      g.position.x = x + Math.sin(ic.t * 80) * 0.06;
+      if (ic.t > 0.55) { ic.state = 'fall'; ic.t = 0; ic.vy = 0; g.position.x = x; }
+    } else if (ic.state === 'fall') {
+      ic.vy -= 42 * dt; ic.y += ic.vy * dt; g.position.y = ic.y;
+      const tip = ic.y - 0.75;
+      if (P.invuln <= 0 && Math.hypot(P.pos.x - x, P.pos.z - z) < 0.3 + P.r && tip < P.pos.y + P.h && ic.y > P.pos.y) hurtPlayer(new V3(x, P.pos.y, z), 'icicle');
+      if (tip <= groundY) {
+        ic.state = 'gone'; ic.t = 0; g.visible = false;
+        Snd.S.shatter(); burst(x, groundY + 0.2, z, 0xcff2ff, 12, 5, 0.5);
+      }
+    } else if (ic.state === 'gone' && ic.t > 2.6) {
+      ic.state = 'grow'; ic.t = 0; ic.y = y0; g.position.set(x, y0, z); g.visible = true; g.scale.setScalar(0.01);
+    } else if (ic.state === 'grow') {
+      const k = Math.min(1, ic.t / 0.8); g.scale.setScalar(k);
+      if (k >= 1) { ic.state = 'idle'; ic.t = 0; }
+    }
+  } });
+  return ic;
+}
+// Phantom platforms fade in and out on a timer (flicker = about to vanish).
+function addPhantom(x, top, z, w, d, on, off, phase) {
+  const s = addBox(x, top, z, w, d, 0.5, 'phantom', 'phantom');
+  s.noCam = true;
+  const setA = fadeableMesh(s.mesh);
+  const T = on + off;
+  s.on = on; s.T = T; s.ph = phase || 0;
+  W.things.push({ update() {
+    const t = (((W.time + (phase || 0)) % T) + T) % T;
+    const solid = t < on;
+    const warn = solid && t > on - 0.75;
+    if (solid !== s.active) {
+      s.active = solid;
+      if (!solid && P.ground === s) { P.ground = null; }
+      if (solid && overlapsBody(P.pos.x, P.pos.y, P.pos.z, P.r, P.h, s)) { P.pos.y = s.y + s.hy; P.vel.y = Math.max(0, P.vel.y); }
+    }
+    setA(!solid ? 0.13 : warn ? (Math.floor(W.time * 14) % 2 ? 0.25 : 0.85) : 0.88);
+  } });
+  return s;
+}
+// Ground-pound candles: light them all before they burn out.
+function addCandles(cfg) {
+  const dur = save.easy ? cfg.duration * 1.6 : cfg.duration;
+  const fireM = basic(0xffb030), coreM = basic(0xfff2a0);
+  const st = { lit: 0, solved: false, candles: [] };
+  for (const sp of cfg.spots) {
+    const [x, top, z] = sp;
+    const ped = addBox(x, top + 0.6, z, 1.6, 1.6, 0.6, 'manor');
+    const g = new THREE.Group();
+    const wax = M(G.cyl8, 0xf4ecd8, 0.22, 0.7, 0.22); wax.position.y = 0.35; g.add(wax);
+    const drip = M(G.cyl8, 0xffffff, 0.25, 0.08, 0.25); drip.position.y = 0.68; g.add(drip);
+    const wick = M(G.cyl8, 0x222222, 0.03, 0.12, 0.03); wick.position.y = 0.76; g.add(wick);
+    const flame = new THREE.Group(); flame.position.y = 0.95; g.add(flame);
+    const f1 = new THREE.Mesh(G.cone6, fireM); f1.scale.set(0.16, 0.42, 0.16); flame.add(f1);
+    const f2 = new THREE.Mesh(G.cone6, coreM); f2.scale.set(0.08, 0.22, 0.08); f2.position.y = -0.05; flame.add(f2);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffa040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.scale.setScalar(3.2); flame.add(glow);
+    flame.visible = false;
+    // ring marker so it reads as "pound here"
+    const ring = new THREE.Mesh(G.torus, basic(0xffd23f)); ring.rotation.x = Math.PI / 2; ring.scale.set(0.62, 0.62, 1.2); ring.position.y = 0.03; g.add(ring);
+    g.position.set(x - 0.45, top + 0.6, z - 0.45); W.root.add(g);
+    st.candles.push({ x, z, top: top + 0.6, ped, flame, ring, t: 0 });
+  }
+  W.things.push({ update(dt) {
+    let lit = 0;
+    for (const c of st.candles) {
+      if (!st.solved && P.state === 'poundLand' && P.stateT < 0.02 && P.ground === c.ped) {
+        const was = c.t > 0;
+        c.t = dur;
+        c.flame.visible = true; Snd.S.candle();
+        burst(c.x - 0.45, c.top + 1, c.z - 0.45, 0xffb030, 14, 4, 0.6);
+        const n = st.candles.filter((k) => k.t > 0).length;
+        if (!was && n < st.candles.length) showToast('<b>CANDLE LIT!</b> ' + n + ' / ' + st.candles.length + ' &mdash; light them all before they burn out!', 3);
+      }
+      if (c.t > 0 && !st.solved) {
+        c.t -= dt;
+        if (c.t <= 0) { c.t = 0; c.flame.visible = false; Snd.S.candleOut(); burst(c.x - 0.45, c.top + 1, c.z - 0.45, 0x888899, 8, 2, 0.6, -2); showToast('A candle <b>burned out</b>&hellip; be quicker!', 2.5); }
+      }
+      if (c.t > 0 || st.solved) {
+        lit++;
+        const k = st.solved ? 1 : 0.45 + 0.55 * (c.t / dur);
+        c.flame.scale.setScalar(k * (0.9 + Math.sin(W.time * 18 + c.x) * 0.1));
+      }
+      c.ring.material = c.t > 0 || st.solved ? basic(0x59d65a) : basic(0xffd23f);
+      c.ring.rotation.z = W.time;
+    }
+    st.lit = lit;
+    if (!st.solved && lit === st.candles.length) {
+      st.solved = true;
+      Snd.S.solve();
+      showToast('<b>ALL CANDLES LIT!</b> The manor door creaks open&hellip;', 3.5);
+      if (cfg.onAll) cfg.onAll();
+    }
+  } });
+  return st;
+}
+// Conveyor belts carry whatever stands on them.
+const beltCanvas = (() => {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2b2f38'; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#3a404c'; for (let y = 0; y < 64; y += 8) g.fillRect(0, y, 64, 3);
+  g.fillStyle = '#ffd23f'; g.beginPath(); g.moveTo(32, 8); g.lineTo(52, 30); g.lineTo(40, 30); g.lineTo(40, 54); g.lineTo(24, 54); g.lineTo(24, 30); g.lineTo(12, 30); g.closePath(); g.fill();
+  return c;
+})();
+function addConveyor(x, top, z, w, d, vx, vz) {
+  const s = addBox(x, top, z, w, d, 0.8, 'metal', 'conveyor');
+  s.conv = [vx, vz];
+  const sp = Math.hypot(vx, vz);
+  const alongX = Math.abs(vx) > Math.abs(vz);
+  const along = alongX ? w : d, across = alongX ? d : w;
+  const tex = new THREE.CanvasTexture(beltCanvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(Math.max(1, Math.round(across / 2)), Math.max(1, Math.round(along / 2)));
+  const belt = new THREE.Mesh(new THREE.PlaneGeometry(across - 0.1, along - 0.1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex }));
+  belt.rotation.y = Math.atan2(-vx, -vz);
+  belt.position.set(x, top + 0.02, z); W.root.add(belt);
+  for (const side of [-1, 1]) { // rollers at both ends
+    const r = M(G.cyl8, 0xffd23f, 0.42, alongX ? d + 0.2 : w + 0.2, 0.42);
+    if (alongX) { r.rotation.x = Math.PI / 2; r.position.set(x + side * w / 2, top - 0.35, z); } else { r.rotation.z = Math.PI / 2; r.position.set(x, top - 0.35, z + side * d / 2); }
+    W.root.add(r);
+  }
+  W.things.push({ update(dt) { tex.offset.y -= (sp * dt) / (along / tex.repeat.y); } });
+  return s;
+}
+// Spinning gear platforms (the collision square stays put, the gear turns and carries you round).
+function addGear(x, top, z, r, speed) {
+  const g = new THREE.Group();
+  const disk = M(G.cyl, mat(0xc9973a, { emissive: 0x2a1800 }), r, 0.6, r); g.add(disk);
+  const face = M(G.cyl, 0xe2b453, r * 0.82, 0.62, r * 0.82); g.add(face);
+  const hub = M(G.cyl8, 0x5d6673, r * 0.28, 0.75, r * 0.28); g.add(hub);
+  const nT = Math.round(r * 5);
+  for (let i = 0; i < nT; i++) {
+    const a = (i / nT) * TAU;
+    const t = M(G.box, 0xc9973a, 0.5, 0.56, 0.55); t.position.set(Math.cos(a) * (r + 0.2), 0, Math.sin(a) * (r + 0.2)); t.rotation.y = -a; g.add(t);
+  }
+  for (let i = 0; i < 3; i++) { const sp = M(G.box, 0x9a6a2a, r * 1.5, 0.64, 0.25); sp.rotation.y = (i / 3) * Math.PI; g.add(sp); }
+  shadowy(g, true, true);
+  g.position.set(x, top - 0.3, z); W.root.add(g);
+  const half = r * 0.85;
+  const s = addSolid(x, top - 0.3, z, half, 0.3, half, 'gear', null);
+  s.spinD = 0;
+  W.things.push({ update(dt) { s.spinD = speed * dt; g.rotation.y += speed * dt; } });
+  return s;
+}
+// Pistons punch out on a rhythm (red light = about to fire) and shove you.
+function addPiston(x, top, z, w, d, h, axis, dist, period, phase) {
+  const housing = addBox(x, top, z, w, d, h, 'metal');
+  const dir = Math.sign(dist), ad = Math.abs(dist);
+  const hx = axis === 'x' ? 0.3 : w / 2 - 0.05, hz = axis === 'z' ? 0.3 : d / 2 - 0.05;
+  const g = new THREE.Group();
+  const plate = M(G.box, 0xffd23f, hx * 2, h - 0.2, hz * 2); g.add(plate);
+  const stripe = M(G.box, 0x1b1440, axis === 'x' ? hx * 2 + 0.02 : hx * 1.2, 0.25, axis === 'z' ? hz * 2 + 0.02 : hz * 1.2); g.add(stripe);
+  const rod = M(G.cyl8, 0xcfd6e6, 0.18, 1, 0.18); if (axis === 'x') rod.rotation.z = Math.PI / 2; else rod.rotation.x = Math.PI / 2; g.add(rod);
+  W.root.add(g);
+  const lamp = new THREE.Mesh(G.sphereLo, basic(0x441111)); lamp.scale.setScalar(0.22); lamp.position.set(x, top + 0.25, z); W.root.add(lamp);
+  const bx = axis === 'x' ? x + dir * (w / 2 + hx) : x, bz = axis === 'z' ? z + dir * (d / 2 + hz) : z;
+  const s = addSolid(bx, top - h / 2 + 0.1, bz, hx, (h - 0.2) / 2, hz, 'mover', g);
+  g.position.set(bx, s.y, bz);
+  let last = 0;
+  W.things.push({ update() {
+    const u = (((W.time / period + (phase || 0)) % 1) + 1) % 1;
+    const ext = u < 0.1 ? u / 0.1 : u < 0.45 ? 1 : u < 0.8 ? 1 - (u - 0.45) / 0.35 : 0;
+    lamp.material = u > 0.82 || u < 0.1 ? basic(Math.floor(W.time * 12) % 2 ? 0xff2222 : 0x661111) : basic(0x441111);
+    const off = ext * ad * dir;
+    const nx = axis === 'x' ? bx + off : bx, nz = axis === 'z' ? bz + off : bz;
+    setSolidPos(s, nx, s.y, nz);
+    const L = ext * ad + 0.01;
+    rod.scale.y = L; rod.position.set(axis === 'x' ? -dir * L / 2 : 0, 0, axis === 'z' ? -dir * L / 2 : 0);
+    // shove: extending into the player knocks them along the axis
+    if (ext > last + 1e-4 && P.state !== 'dead' && !P.frozen) {
+      const ox = Math.abs(P.pos.x - s.x) < s.hx + P.r + 0.05, oz = Math.abs(P.pos.z - s.z) < s.hz + P.r + 0.05, oy = P.pos.y < s.y + s.hy && P.pos.y + P.h > s.y - s.hy;
+      if (ox && oz && oy) {
+        P.vel[axis] = dir * 7.5; P.vel.y = Math.max(P.vel.y, 5); P.grounded = false; P.ground = null;
+        if (P.state === 'normal' || P.state === 'spin') { P.state = 'hurt'; P.stateT = 0.5; }
+        Snd.S.bump(); shakeAmt = Math.max(shakeAmt, 0.15);
+      }
+    }
+    last = ext;
+  } });
+  void housing;
+  return s;
+}
+// Lever puzzle: each lever flips some of the lamps. Light all of them to open the way.
+function addLeverPuzzle(cfg) {
+  const top = cfg.top;
+  const state = cfg.init.slice();
+  const lamps = cfg.lamps.map((lp) => {
+    const g = new THREE.Group();
+    const post = M(G.cyl8, 0x5d6673, 0.16, lp[3] || 3, 0.16); post.position.y = (lp[3] || 3) / 2; g.add(post);
+    const cage = M(G.cyl8, 0x2b2f38, 0.5, 0.2, 0.5); cage.position.y = (lp[3] || 3); g.add(cage);
+    const bulb = new THREE.Mesh(G.sphereLo, basic(0x333344)); bulb.scale.setScalar(0.55); bulb.position.y = (lp[3] || 3) + 0.55; g.add(bulb);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffe14a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.scale.setScalar(4); glow.position.copy(bulb.position); g.add(glow);
+    g.position.set(lp[0], lp[1], lp[2]); W.root.add(g);
+    return { bulb, glow };
+  });
+  const paint = () => lamps.forEach((l, i) => { l.bulb.material = state[i] ? basic(0xffe14a) : basic(0x333344); l.glow.material.opacity = state[i] ? 0.9 : 0; });
+  paint();
+  const pz = { solved: false, state, presses: 0 };
+  cfg.levers.forEach((lv, li) => {
+    const [x, z, flips, label] = lv;
+    const g = new THREE.Group();
+    const base = M(G.box, 0x2b2f38, 2.2, 0.2, 2.2); base.position.y = 0.1; g.add(base);
+    const plate = new THREE.Mesh(G.box, [mat(0x5d6673), mat(0x5d6673), mat(0xffffff, { map: letterTex(label, '#ff9d2e') }), mat(0x5d6673), mat(0x5d6673), mat(0x5d6673)]);
+    plate.scale.set(1.8, 0.14, 1.8); plate.position.y = 0.22; g.add(plate);
+    const arm = new THREE.Group(); arm.position.set(0, 0.25, -0.8); g.add(arm);
+    const stick = M(G.cyl8, 0xcfd6e6, 0.07, 1.1, 0.07); stick.position.y = 0.55; arm.add(stick);
+    const knob = M(G.sphereLo, 0xff3b3b, 0.18); knob.position.y = 1.1; arm.add(knob);
+    arm.rotation.x = 0.5;
+    shadowy(g, true, true);
+    g.position.set(x, top, z); W.root.add(g);
+    const L = { was: false, up: false };
+    W.things.push({ update() {
+      const on = onPad(x, top, z, 1.05);
+      if (on && !L.was && !pz.solved) {
+        L.up = !L.up; arm.rotation.x = L.up ? -0.5 : 0.5;
+        for (const f of flips) state[f] = state[f] ? 0 : 1;
+        pz.presses++;
+        paint(); Snd.S.lever(); ringFx(x, top, z, 0xffd23f, 2.5);
+        if (state.every(Boolean)) {
+          pz.solved = true; Snd.S.solve();
+          showToast('<b>ALL LIGHTS ON!</b> The factory gate rumbles open!', 3.5);
+          if (cfg.onSolve) cfg.onSolve();
+        } else showToast('Lights on: <b>' + state.filter(Boolean).length + ' / ' + state.length + '</b>', 1.6);
+      }
+      L.was = on;
+    } });
+  });
+  return pz;
+}
+
+// ---------- 2.0 enemy models ----------
+function buildSnowman() {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  const snowM = mat(0xffffff, { emissive: 0x334455 });
+  const s1 = new THREE.Mesh(G.sphereLo, snowM); s1.scale.setScalar(0.72); s1.position.y = 0.66; b.add(s1);
+  const s2 = new THREE.Mesh(G.sphereLo, snowM); s2.scale.setScalar(0.52); s2.position.y = 1.55; b.add(s2);
+  const head = new THREE.Group(); head.position.y = 2.2; b.add(head);
+  const s3 = new THREE.Mesh(G.sphereLo, snowM); s3.scale.setScalar(0.4); head.add(s3);
+  const nose = M(G.cone6, 0xff8a1c, 0.08, 0.4, 0.08); nose.rotation.x = Math.PI / 2; nose.position.set(0, 0, 0.5); head.add(nose);
+  const eL = M(G.sphereLo, 0x1b1440, 0.06); eL.position.set(-0.14, 0.1, 0.35); head.add(eL);
+  const eR = eL.clone(); eR.position.x = 0.14; head.add(eR);
+  const brow = M(G.box, 0x1b1440, 0.42, 0.06, 0.05); brow.position.set(0, 0.24, 0.36); brow.rotation.z = 0.12; head.add(brow);
+  const hat = M(G.cyl8, 0x2a2344, 0.3, 0.38, 0.3); hat.position.y = 0.45; head.add(hat);
+  const brim = M(G.cyl8, 0x2a2344, 0.45, 0.06, 0.45); brim.position.y = 0.27; head.add(brim);
+  const band = M(G.cyl8, 0xff3b5c, 0.31, 0.08, 0.31); band.position.y = 0.33; head.add(band);
+  const scarf = M(G.cyl8, 0xff3b5c, 0.42, 0.14, 0.42); scarf.position.y = 1.92; b.add(scarf);
+  for (let i = 0; i < 3; i++) { const btn = M(G.sphereLo, 0x1b1440, 0.05); btn.position.set(0, 1.4 + i * 0.16, 0.5 - Math.abs(i - 1) * 0.02); b.add(btn); }
+  const mkArm = (side) => { const a = new THREE.Group(); a.position.set(side * 0.45, 1.6, 0); const st = M(G.cyl8, 0x6b3b1f, 0.04, 0.8, 0.04); st.position.y = 0.4; a.add(st); a.rotation.z = -side * 1.0; b.add(a); return a; };
+  const armL = mkArm(-1), armR = mkArm(1);
+  const ball = new THREE.Mesh(G.sphereLo, snowM); ball.scale.setScalar(0.25); ball.position.y = 0.85; armR.add(ball);
+  shadowy(g, true, false);
+  return { root: g, body: b, head, armL, armR, ball };
+}
+function buildPenguin() {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  const body = M(G.sphereLo, 0x22263a, 0.5, 0.62, 0.46); body.position.y = 0.62; b.add(body);
+  const belly = M(G.sphereLo, 0xffffff, 0.38, 0.5, 0.3); belly.position.set(0, 0.56, 0.2); b.add(belly);
+  const beak = M(G.cone6, 0xffa020, 0.1, 0.26, 0.1); beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.9, 0.48); b.add(beak);
+  eyesOn(b, 1.02, 0.36, 0.13, 0.08, true);
+  const fL = M(G.sphereLo, 0x22263a, 0.1, 0.35, 0.18); fL.position.set(-0.5, 0.62, 0); fL.rotation.z = 0.4; b.add(fL);
+  const fR = fL.clone(); fR.position.x = 0.5; fR.rotation.z = -0.4; b.add(fR);
+  const ftL = M(G.sphereLo, 0xffa020, 0.14, 0.06, 0.2); ftL.position.set(-0.18, 0.04, 0.12); b.add(ftL);
+  const ftR = ftL.clone(); ftR.position.x = 0.18; b.add(ftR);
+  const hat = M(G.cone6, 0x38b6ff, 0.22, 0.4, 0.22); hat.position.y = 1.32; b.add(hat);
+  const pom = M(G.sphereLo, 0xffffff, 0.09); pom.position.y = 1.55; b.add(pom);
+  shadowy(g, true, false);
+  return { root: g, body: b, fL, fR };
+}
+function buildGhost() {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  const gm = new THREE.MeshLambertMaterial({ color: 0xf4f0ff, emissive: 0x6a5a9a, transparent: true, opacity: 0.88 });
+  const head = new THREE.Mesh(G.sphere, gm); head.scale.set(0.62, 0.6, 0.6); head.position.y = 0.85; b.add(head);
+  const tail = new THREE.Mesh(G.cone, gm); tail.scale.set(0.5, 0.7, 0.5); tail.rotation.x = Math.PI; tail.position.y = 0.3; b.add(tail);
+  const eyeM = basic(0x1b1440);
+  const eL = new THREE.Mesh(G.sphere, eyeM); eL.scale.set(0.09, 0.15, 0.05); eL.position.set(-0.18, 0.95, 0.54); b.add(eL);
+  const eR = eL.clone(); eR.position.x = 0.18; b.add(eR);
+  const mouth = new THREE.Mesh(G.sphere, basic(0x7a1030)); mouth.scale.set(0.16, 0.12, 0.05); mouth.position.set(0, 0.68, 0.56); b.add(mouth);
+  const tongue = new THREE.Mesh(G.sphere, basic(0xff6b9a)); tongue.scale.set(0.08, 0.06, 0.04); tongue.position.set(0.03, 0.63, 0.6); b.add(tongue);
+  const armL = new THREE.Mesh(G.sphereLo, gm); armL.scale.set(0.16, 0.22, 0.16); armL.position.set(-0.6, 0.75, 0.15); b.add(armL);
+  const armR = armL.clone(); armR.position.x = 0.6; b.add(armR);
+  return { root: g, body: b, armL, armR, mat: gm, mouth, tongue };
+}
+function buildRobot() {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  const body = M(G.box, 0x8a94a3, 0.95, 0.75, 0.8); body.position.y = 0.6; b.add(body);
+  const stripe = M(G.box, 0xffd23f, 0.97, 0.16, 0.82); stripe.position.y = 0.45; b.add(stripe);
+  const head = M(G.box, 0x5d6673, 0.7, 0.42, 0.6); head.position.y = 1.18; b.add(head);
+  const visor = new THREE.Mesh(G.box, basic(0x38e0ff)); visor.scale.set(0.55, 0.14, 0.05); visor.position.set(0, 1.2, 0.31); b.add(visor);
+  const ant = M(G.cyl8, 0xcfd6e6, 0.03, 0.4, 0.03); ant.position.y = 1.58; b.add(ant);
+  const bulb = new THREE.Mesh(G.sphereLo, basic(0xff3355)); bulb.scale.setScalar(0.1); bulb.position.y = 1.8; b.add(bulb);
+  const wheelL = M(G.cyl8, 0x2b2f38, 0.24, 0.16, 0.24); wheelL.rotation.z = Math.PI / 2; wheelL.position.set(-0.5, 0.24, 0); b.add(wheelL);
+  const wheelR = wheelL.clone(); wheelR.position.x = 0.5; b.add(wheelR);
+  const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0x55ddff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  spark.scale.setScalar(2.6); spark.position.y = 0.9; b.add(spark);
+  shadowy(g, true, false);
+  return { root: g, body: b, bulb, spark, wheelL, wheelR, visor };
+}
+function addSnowman(x, top, z) { return makeEnemy('snowman', x, top, z, buildSnowman(), { r: 0.7, h: 2.3, cool: 2 + Math.random() * 1.5 }); }
+function addPenguin(x, top, z) { return makeEnemy('penguin', x, top, z, buildPenguin(), { r: 0.55, h: 1.15, pmode: 'walk', pt: 0, cd: 1 }); }
+function addGhost(x, y, z) {
+  const e = makeEnemy('ghost', x, y, z, buildGhost(), { r: 0.6, h: 1.3, stompable: false, alpha: 0.88 });
+  const blob = new THREE.Mesh(G.circle, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
+  blob.scale.setScalar(0.5); W.root.add(blob); e.blob = blob;
+  return e;
+}
+function addRobot(x, top, z, x2, z2, ph) { return makeEnemy('robot', x, top, z, buildRobot(), { r: 0.6, h: 1.4, a: new V3(x, top, z), b: new V3(x2, top, z2), toB: true, ph: ph || 0, sparking: false }); }
+
 // ---------- hazards ----------
 function playerSegDist(px, py, pz) {
   const cy = clamp(py, P.pos.y + 0.35, P.pos.y + 1.15);
@@ -1429,7 +1854,7 @@ function updateEnemies(dt) {
       if (chase) {
         if (!e.alert) { e.alert = 1; e.vy = 5; Snd.S.bump(); }
         e.dir = angleLerp(e.dir, Math.atan2(dxp, dzp), Math.min(1, dt * 5));
-        speed = 3.3;
+        speed = 3.0;
       } else {
         e.alert = 0; speed = 1.5;
         if (e.t > e.nextTurn) { e.dir += (Math.random() - 0.5) * 2.6; e.nextTurn = e.t + 1.5 + Math.random() * 2.5; }
@@ -1467,7 +1892,7 @@ function updateEnemies(dt) {
       const tz = chase ? P.pos.z : e.home.z + Math.cos(e.t * 0.8) * 2;
       const vx = tx - e.pos.x, vy = ty - e.pos.y, vz = tz - e.pos.z;
       const vd = Math.hypot(vx, vy, vz) || 1;
-      const sp = Math.min(chase ? 4.0 : 3, vd * 3);
+      const sp = Math.min(chase ? 3.4 : 3, vd * 3);
       e.pos.x += (vx / vd) * sp * dt; e.pos.y += (vy / vd) * sp * dt; e.pos.z += (vz / vd) * sp * dt;
       if (Math.hypot(vx, vz) > 0.1) e.dir = angleLerp(e.dir, Math.atan2(vx, vz), Math.min(1, dt * 6));
       m.root.rotation.y = e.dir;
@@ -1484,17 +1909,117 @@ function updateEnemies(dt) {
         m.eye.scale.setScalar(tele ? 0.16 + Math.sin(e.t * 40) * 0.05 : 0.12);
         m.head.scale.setScalar(tele ? 1.1 : 1);
         if (e.cool <= 0) {
-          e.cool = 2.7;
+          e.cool = 3.3;
           const a = m.head.rotation.y;
           const mx = e.pos.x + Math.sin(a) * 0.95, my = e.pos.y + 0.9, mz = e.pos.z + Math.cos(a) * 0.95;
           const d = new V3(P.pos.x - mx, P.pos.y + 0.8 - my, P.pos.z - mz).normalize();
-          fireProjectile(mx, my, mz, d, 8.5);
+          fireProjectile(mx, my, mz, d, save.easy ? 6 : 7.2);
           m.head.position.z = -0.15;
         }
       } else { m.head.scale.setScalar(1); m.eye.scale.setScalar(0.12); }
       m.head.position.z = lerp(m.head.position.z, 0, dt * 6);
+    } else if (e.type === 'snowman') {
+      enemyMove(e, 0, 0, dt);
+      e.dir = angleLerp(e.dir, Math.atan2(dxp, dzp), Math.min(1, dt * 3));
+      m.root.rotation.y = e.dir;
+      m.body.rotation.z = Math.sin(e.t * 2) * 0.04;
+      const inRange = playerOk && distP < 15 && Math.abs(dyp) < 8;
+      if (inRange) {
+        e.cool -= dt;
+        const tele = e.cool < 0.65;
+        m.armR.rotation.x = tele ? -2.4 : 0; m.ball.visible = true;
+        if (e.cool <= 0) {
+          e.cool = save.easy ? 4.4 : 3.5;
+          const mx = e.pos.x + Math.sin(e.dir) * 0.5, my = e.pos.y + 2.3, mz = e.pos.z + Math.cos(e.dir) * 0.5;
+          const tx = P.pos.x + P.vel.x * 0.3 - mx, tz = P.pos.z + P.vel.z * 0.3 - mz, ty = P.pos.y + 0.8 - my;
+          const hd = Math.hypot(tx, tz), T = clamp(hd / 8, 0.45, 2.0), GR = 14;
+          const v = new V3(tx / T, (ty + 0.5 * GR * T * T) / T, tz / T);
+          const sp = v.length();
+          fireProjectile(mx, my, mz, v.normalize(), sp, { kind: 'snow', grav: GR });
+          m.armR.rotation.x = 0.8;
+        }
+      } else { m.armR.rotation.x = lerp(m.armR.rotation.x, 0, dt * 4); }
+    } else if (e.type === 'penguin') {
+      e.pt += dt; e.cd -= dt;
+      if (e.pmode === 'walk') {
+        if (e.t > e.nextTurn) { e.dir += (Math.random() - 0.5) * 2.6; e.nextTurn = e.t + 1.5 + Math.random() * 2; }
+        const hx = e.home.x - e.pos.x, hz = e.home.z - e.pos.z;
+        if (hx * hx + hz * hz > 16) e.dir = angleLerp(e.dir, Math.atan2(hx, hz), Math.min(1, dt * 3));
+        const ux = Math.sin(e.dir), uz = Math.cos(e.dir);
+        if (e.grounded && !groundAhead(e, ux, uz)) { e.dir += Math.PI; enemyMove(e, 0, 0, dt); }
+        else if (enemyMove(e, ux * 1.3 * dt, uz * 1.3 * dt, dt)) e.dir += Math.PI * 0.8;
+        m.body.rotation.set(0, 0, Math.sin(e.t * 10) * 0.15); m.body.position.y = 0;
+        m.fL.rotation.z = 0.4 + Math.sin(e.t * 10) * 0.3; m.fR.rotation.z = -0.4 - Math.sin(e.t * 10) * 0.3;
+        if (playerOk && e.cd <= 0 && distP < 9 && Math.abs(dyp) < 1.3) { e.pmode = 'aim'; e.pt = 0; e.dir = Math.atan2(dxp, dzp); Snd.S.bump(); e.vy = 4; }
+      } else if (e.pmode === 'aim') {
+        enemyMove(e, 0, 0, dt);
+        e.dir = angleLerp(e.dir, Math.atan2(dxp, dzp), Math.min(1, dt * 8));
+        m.body.rotation.set(-0.3, 0, 0);
+        if (e.pt > 0.45) { e.pmode = 'slide'; e.pt = 0; Snd.S.slide(); }
+      } else if (e.pmode === 'slide') {
+        const ux = Math.sin(e.dir), uz = Math.cos(e.dir), sp = save.easy ? 6 : 7.5;
+        let stop = e.pt > 1.4;
+        if (e.grounded && !groundAhead(e, ux, uz)) stop = true;
+        else if (enemyMove(e, ux * sp * dt, uz * sp * dt, dt)) stop = true;
+        m.body.rotation.set(1.35, 0, 0); m.body.position.y = -0.25;
+        m.fL.rotation.z = 1.4; m.fR.rotation.z = -1.4;
+        if (Math.random() < 0.3) burst(e.pos.x, e.pos.y + 0.1, e.pos.z, 0xffffff, 1, 2, 0.4, 3, 1);
+        if (stop) { e.pmode = 'recover'; e.pt = 0; }
+      } else {
+        enemyMove(e, 0, 0, dt);
+        m.body.rotation.set(lerp(m.body.rotation.x, 0, dt * 6), 0, Math.sin(e.t * 20) * 0.1); m.body.position.y = 0;
+        if (e.pt > 1.0) { e.pmode = 'walk'; e.cd = 1.6; }
+      }
+      m.root.rotation.y = e.dir;
+    } else if (e.type === 'ghost') {
+      const toG = Math.atan2(e.pos.x - P.pos.x, e.pos.z - P.pos.z);
+      const looking = Math.abs(angDiff(P.facing, toG)) < 1.25;
+      const hx = P.pos.x - e.home.x, hz = P.pos.z - e.home.z;
+      const hunt = playerOk && Math.hypot(hx, hz) < 15 && distP < 16 && Math.abs(dyp) < 6;
+      const shy = hunt && looking;
+      let tx, ty, tz, sp;
+      if (hunt && !shy) { tx = P.pos.x; ty = P.pos.y + 0.25; tz = P.pos.z; sp = save.easy ? 1.8 : 2.4; if (!e.alert) { e.alert = 1; Snd.S.ghost(); } }
+      else if (shy) { tx = e.pos.x; ty = e.pos.y; tz = e.pos.z; sp = 0; }
+      else { e.alert = 0; tx = e.home.x + Math.sin(e.t * 0.6) * 1.5; ty = e.home.y + Math.sin(e.t * 1.7) * 0.3; tz = e.home.z + Math.cos(e.t * 0.6) * 1.5; sp = 1.6; }
+      const vx = tx - e.pos.x, vy = ty - e.pos.y, vz = tz - e.pos.z, vd = Math.hypot(vx, vy, vz) || 1;
+      const step = Math.min(sp, vd * 3) * dt;
+      e.pos.x += (vx / vd) * step; e.pos.y += (vy / vd) * step; e.pos.z += (vz / vd) * step;
+      if (!shy && Math.hypot(vx, vz) > 0.1) e.dir = angleLerp(e.dir, Math.atan2(vx, vz), Math.min(1, dt * 5));
+      else if (shy) e.dir = angleLerp(e.dir, Math.atan2(dxp, dzp), Math.min(1, dt * 5));
+      m.root.rotation.y = e.dir;
+      e.alpha = lerp(e.alpha, shy ? 0.4 : 0.88, damp(6, dt));
+      m.mat.opacity = e.alpha;
+      // shy = hands over the eyes; chasing = arms out, tongue out
+      m.armL.position.set(shy ? -0.2 : -0.62, shy ? 0.95 : 0.75 + Math.sin(e.t * 6) * 0.08, shy ? 0.55 : 0.15);
+      m.armR.position.set(shy ? 0.2 : 0.62, shy ? 0.95 : 0.75 - Math.sin(e.t * 6) * 0.08, shy ? 0.55 : 0.15);
+      m.tongue.visible = !shy && hunt;
+      m.body.position.y = Math.sin(e.t * 2.2) * 0.12;
+      m.body.rotation.z = Math.sin(e.t * 1.4) * 0.1;
+      const gt = groundTopAt(e.pos.x, e.pos.z, e.pos.y);
+      if (gt > -Infinity) { e.blob.visible = true; e.blob.position.set(e.pos.x, gt + 0.03, e.pos.z); } else e.blob.visible = false;
+    } else if (e.type === 'robot') {
+      const tgt = e.toB ? e.b : e.a;
+      const tx = tgt.x - e.pos.x, tz = tgt.z - e.pos.z, td = Math.hypot(tx, tz);
+      const cyc = ((e.t + e.ph) % 4.6);
+      const sparking = cyc > 3.2, tele = cyc > 2.5 && !sparking;
+      if (sparking && !e.sparking && distP < 16) Snd.S.spark();
+      e.sparking = sparking;
+      e.stompable = e.spinnable = !sparking;
+      if (td < 0.3) e.toB = !e.toB;
+      else if (!sparking) {
+        const ux = tx / td, uz = tz / td;
+        e.dir = angleLerp(e.dir, Math.atan2(ux, uz), Math.min(1, dt * 6));
+        if (e.grounded && !groundAhead(e, ux, uz)) { e.toB = !e.toB; enemyMove(e, 0, 0, dt); }
+        else if (enemyMove(e, ux * 1.9 * dt, uz * 1.9 * dt, dt)) e.toB = !e.toB;
+        m.wheelL.rotation.x += dt * 8; m.wheelR.rotation.x += dt * 8;
+      } else enemyMove(e, 0, 0, dt);
+      m.root.rotation.y = e.dir;
+      m.bulb.material = basic(sparking ? 0x55ddff : tele ? (Math.floor(e.t * 12) % 2 ? 0xffffff : 0xff3355) : 0xff3355);
+      m.spark.material.opacity = sparking ? 0.55 + Math.random() * 0.45 : 0;
+      m.body.position.y = sparking ? (Math.random() - 0.5) * 0.06 : 0;
+      if (sparking && Math.random() < 0.25) burst(e.pos.x + (Math.random() - 0.5), e.pos.y + 0.6 + Math.random(), e.pos.z + (Math.random() - 0.5), 0x9ff0ff, 1, 4, 0.25, 0, 0.8);
     }
-    if (e.type !== 'bee' && e.type !== 'turret' && (e.pos.y < W.killY || (W.lavaY !== null && e.pos.y < W.lavaY))) {
+    if (e.type !== 'bee' && e.type !== 'turret' && e.type !== 'ghost' && (e.pos.y < W.killY || (W.lavaY !== null && e.pos.y < W.lavaY))) {
       if (W.lavaY !== null) burst(e.pos.x, W.lavaY, e.pos.z, 0xff7a1c, 8, 4, 0.5);
       e.alive = false; e.dying = 0; continue;
     }
@@ -1543,20 +2068,26 @@ function killEnemy(e, kind) {
   collectCoin(e.pos.x, e.pos.y + 1, e.pos.z, true);
   popCoinFx(e.pos.x, e.pos.y + 0.8, e.pos.z);
 }
-function fireProjectile(x, y, z, dir, speed) {
+function fireProjectile(x, y, z, dir, speed, opts) {
   const g = new THREE.Group();
-  const core = new THREE.Mesh(G.ico, basic(0xff4dd2)); core.scale.setScalar(0.3); g.add(core);
-  const inner = new THREE.Mesh(G.ico, basic(0xffffff)); inner.scale.setScalar(0.16); g.add(inner);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0xff66dd, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-  glow.scale.setScalar(1.4); g.add(glow);
+  const snow = opts && opts.kind === 'snow';
+  if (snow) {
+    const ball = new THREE.Mesh(G.sphereLo, mat(0xffffff, { emissive: 0x556677 })); ball.scale.setScalar(0.32); g.add(ball);
+  } else {
+    const core = new THREE.Mesh(G.ico, basic(0xff4dd2)); core.scale.setScalar(0.3); g.add(core);
+    const inner = new THREE.Mesh(G.ico, basic(0xffffff)); inner.scale.setScalar(0.16); g.add(inner);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0xff66dd, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.scale.setScalar(1.4); g.add(glow);
+  }
   g.position.set(x, y, z); W.root.add(g);
-  W.projectiles.push({ pos: g.position, vel: dir.clone().multiplyScalar(speed), life: 4.5, mesh: g });
-  Snd.S.shoot();
+  W.projectiles.push({ pos: g.position, vel: dir.clone().multiplyScalar(speed), life: 4.5, mesh: g, grav: (opts && opts.grav) || 0, color: snow ? 0xffffff : 0xff66dd });
+  if (snow) Snd.S.throwSnow(); else Snd.S.shoot();
 }
 function updateProjectiles(dt) {
   for (let i = W.projectiles.length - 1; i >= 0; i--) {
     const p = W.projectiles[i];
     p.life -= dt;
+    if (p.grav) p.vel.y -= p.grav * dt;
     p.pos.addScaledVector(p.vel, dt);
     p.mesh.rotation.y += dt * 10;
     let dead = p.life <= 0;
@@ -1569,10 +2100,11 @@ function updateProjectiles(dt) {
     if (!dead && P.state !== 'dead' && !P.frozen) {
       const d = playerSegDist(p.pos.x, p.pos.y, p.pos.z);
       if (P.state === 'spin' && d < 1.8) { dead = true; Snd.S.bump(); }
+      else if (p.pos.y < W.killY) dead = true;
       else if (d < 0.3 + P.r) { dead = true; hurtPlayer(p.pos.clone().sub(p.vel), 'shot'); }
     }
     if (dead) {
-      burst(p.pos.x, p.pos.y, p.pos.z, 0xff66dd, 6, 3, 0.35);
+      burst(p.pos.x, p.pos.y, p.pos.z, p.color, 6, 3, 0.35);
       W.root.remove(p.mesh);
       W.projectiles.splice(i, 1);
     }
@@ -1628,12 +2160,28 @@ function pMove(axis, amt) {
         p.y = top;
         continue;
       }
+      // 2.0 ledge assist: a jump that clips the lip of a platform pops you up onto it instead of sliding off
+      if (!P.wasGrounded && P.vel.y <= 3 && rise > 0 && rise <= ledgeAssist() && s.kind !== 'door' && s.kind !== 'gate' && s.kind !== 'crusher' &&
+          P.state !== 'hurt' && P.state !== 'lava' && P.state !== 'dead' &&
+          boxFree(p.x, top + h / 2 + 0.02, p.z, r - 0.02, h / 2, r - 0.02, null)) {
+        p.y = top + 0.001;
+        if (P.vel.y > 0) P.vel.y = 0;
+        continue;
+      }
       let pushed = false;
       if (s.kind === 'push' && P.wasGrounded && !s.seated && P.state !== 'spin') {
         const comp = axis === 'x' ? P.inX : P.inZ;
         if (Math.sign(comp) === Math.sign(amt) && Math.abs(comp) > 0.35) {
-          pushed = tryMoveBlock(s, axis, Math.sign(amt) * PUSH_SPEED * FIXED);
-          if (pushed) P.pushing = true;
+          if (s.ice) {
+            if (!s.slide) {
+              if (W.time - s.lastPush > 0.05) s.pushT = 0;
+              s.lastPush = W.time; s.pushT += FIXED; P.pushing = true;
+              if (s.pushT > 0.12) { s.slide = { axis, dir: Math.sign(amt) }; s.pushT = 0; Snd.S.slide(); }
+            }
+          } else {
+            pushed = tryMoveBlock(s, axis, Math.sign(amt) * PUSH_SPEED * FIXED);
+            if (pushed) P.pushing = true;
+          }
         }
       }
       if (s.kind === 'door' && s.tryOpen) s.tryOpen();
@@ -1700,7 +2248,7 @@ function playerTick(dt) {
   if (wl > 1e-4) { wx = (wx / wl) * mag; wz = (wz / wl) * mag; } else { wx = 0; wz = 0; }
   P.inX = wx; P.inZ = wz;
 
-  if (input.jumpPressed) P.jumpBuf = 0.13; else P.jumpBuf -= dt;
+  if (input.jumpPressed) P.jumpBuf = JUMP_BUF; else P.jumpBuf -= dt;
   const locked = P.state === 'poundStart' || P.state === 'pound' || P.state === 'poundLand' || P.state === 'hurt' || P.state === 'lava';
 
   // ---- action button ----
@@ -1741,8 +2289,12 @@ function playerTick(dt) {
     const topSpeed = RUN * (spinning ? 0.75 : 1);
     const tx = wx * topSpeed, tz = wz * topSpeed;
     let accel;
-    if (P.grounded) accel = mag > 0.05 ? (P.vel.x * tx + P.vel.z * tz < 0 ? 90 : 60) : 48;
-    else accel = P.state === 'longjump' ? 12 : 30;
+    // ice: ground.ice is a slipperiness amount (1 = glassy bridge, ~0.5 = rink)
+    const ice = (P.grounded && P.ground && P.ground.ice) || 0;
+    if (P.grounded) {
+      accel = mag > 0.05 ? (P.vel.x * tx + P.vel.z * tz < 0 ? 90 : 60) : 48;
+      if (ice) accel = lerp(accel, mag > 0.05 ? 15 : 4.5, ice);
+    } else accel = P.state === 'longjump' ? AIR_ACCEL_LONG : AIR_ACCEL;
     const oldSp = Math.hypot(P.vel.x, P.vel.z);
     let dx = tx - P.vel.x, dz = tz - P.vel.z;
     const dl = Math.hypot(dx, dz), maxd = accel * dt;
@@ -1769,7 +2321,7 @@ function playerTick(dt) {
   }
 
   // ---- jumping ----
-  if (P.grounded) { P.coyote = 0.1; P.canDouble = true; } else P.coyote -= dt;
+  if (P.grounded) { P.coyote = COYOTE; P.canDouble = true; } else P.coyote -= dt;
   if (!locked) {
     if (P.jumpBuf > 0 && P.coyote > 0) {
       const hs = Math.hypot(P.vel.x, P.vel.z);
@@ -1837,7 +2389,7 @@ function hurtPlayer(from, kind) {
   Snd.S.hurt(); shakeAmt = Math.max(shakeAmt, 0.25);
   burst(P.pos.x, P.pos.y + 1, P.pos.z, 0xff3b5c, 10, 5, 0.5);
   if (P.health <= 0) { killPlayer(); return; }
-  P.invuln = 1.6; P.state = 'hurt'; P.stateT = 0; P.jumping = false;
+  P.invuln = HURT_INVULN; P.state = 'hurt'; P.stateT = 0; P.jumping = false;
   let dx = P.pos.x - from.x, dz = P.pos.z - from.z;
   const d = Math.hypot(dx, dz);
   if (d < 0.01) { dx = -Math.sin(P.facing); dz = -Math.cos(P.facing); } else { dx /= d; dz /= d; }
@@ -1868,20 +2420,21 @@ function fallOut() {
   P.health--; updateHUD(true);
   setTimeout(() => {
     if (mode !== 'playing') return;
-    if (P.health <= 0) loseLife(); else respawn(false);
+    if (P.health <= 0) loseLife(); else respawn(false, P.lastSafe);
   }, 450);
 }
 function loseLife() {
-  run.lives--;
+  if (!save.easy) run.lives--;
   updateHUD(true);
   if (run.lives <= 0) { gameOver(); return; }
   respawn(true);
 }
-function respawn(full) {
+function respawn(full, at) {
   P.frozen = true;
+  const pos = at ? at.clone().setY(at.y + 0.05) : null, yaw = cam.yaw;
   fadeThen(() => {
     if (full) P.health = P.maxHealth;
-    resetPlayerAt(W.checkpoint.pos, W.checkpoint.yaw);
+    if (pos) resetPlayerAt(pos, yaw); else resetPlayerAt(W.checkpoint.pos, W.checkpoint.yaw);
     P.invuln = 1.5;
     updateHUD(true);
     if (full) Snd.playMusic(W.levelIdx);
@@ -2059,9 +2612,15 @@ function animatePlayer(dt) {
     const hgt = P.pos.y - gt;
     b.visible = true;
     b.position.set(P.pos.x, gt + 0.04, P.pos.z);
-    b.scale.setScalar(clamp(0.55 - hgt * 0.025, 0.25, 0.55));
-    b.material.opacity = clamp(0.45 - hgt * 0.02, 0.15, 0.45);
-  } else b.visible = false;
+    b.scale.setScalar(clamp(0.62 - hgt * 0.018, 0.34, 0.62));
+    b.material.opacity = clamp(0.6 - hgt * 0.015, 0.35, 0.6);
+    const rg = P.ring;
+    if (rg) {
+      rg.visible = !P.grounded && hgt > 0.25;
+      rg.position.set(P.pos.x, gt + 0.05, P.pos.z);
+      rg.scale.setScalar(clamp(0.62 - hgt * 0.018, 0.34, 0.62));
+    }
+  } else { b.visible = false; if (P.ring) P.ring.visible = false; }
 }
 
 // =====================================================================
@@ -2155,7 +2714,7 @@ function buildMeadows() {
   addBox(2.5, 9.3, 1.5, 3, 3, 0.8, 'cloud');
   addItem('star', 2.5, 10.6, 1.5, { idx: 1 });
   addQBlock(-2.2, 3.4, -2, 'coins'); addQBlock(-1.1, 3.4, -2, 'coin'); addQBlock(0, 3.4, -2, 'coins');
-  addWalker(3, 0, -5); addWalker(-5, 0, -6);
+  addWalker(3, 0, -5);
   addTree(-8.2, 0, -9, 1.1); addTree(8.5, 0, -10, 1); addTree(-8.5, 0, 1.5, 0.9);
   addHint(3, 0, -10, 'Stomp enemies by <b>jumping on them</b>! Hop on the <b>moving platform</b> to cross the water.', null, 2.8);
 
@@ -2165,7 +2724,7 @@ function buildMeadows() {
 
   // ---- Island B: crate puzzle ----
   const B = addBox(0, 0, -36, 24, 28, 8, 'meadow'); decorate(B);
-  addCheckpoint(-7.5, 0, -24.5, 0);
+  addCheckpoint(1.4, 0, -23.0, 0);
   addHint(-2, 0, -24, '<b>PUZZLE:</b> Push the <b>crates</b> onto <b>BOTH</b> yellow switches to open the gate. (Blue button = reset crates.)', null, 3);
   addBox(-7.25, 8, -49, 9.5, 2, 9, 'stone'); addBox(7.25, 8, -49, 9.5, 2, 9, 'stone');
   crenels(-11.5, -3, -49, -49, 8); crenels(3, 11.5, -49, -49, 8);
@@ -2188,15 +2747,16 @@ function buildMeadows() {
   addTree(10.6, 0, -23.4, 0.9); addTree(10.8, 0, -46, 0.9);
 
   // ---- Falling platforms ----
-  addHint(-2, 0, -46.3, 'Wobbly orange platforms <b>fall</b> &mdash; keep moving!', null, 2.4);
-  addFalling(0, 0, -52.5, 2.6, 2.6); addFalling(1.5, 0, -56, 2.6, 2.6); addFalling(-0.5, 0, -59.5, 2.6, 2.6);
+  addCheckpoint(-1.6, 0, -46.2, 0);
+  addHint(2.2, 0, -46.3, 'Wobbly orange platforms <b>fall</b> &mdash; keep moving!', null, 2.4);
+  addFalling(0, 0, -52.5, 3.2, 3.2); addFalling(1.5, 0, -56, 3.2, 3.2); addFalling(-0.5, 0, -59.5, 3.2, 3.2);
   coinLine(0, 1.2, -52.5, -0.5, 1.2, -59.5, 3);
 
   // ---- Island C: log, cage, goal ----
   const C = addBox(0, 0, -76, 22, 28, 8, 'grass'); decorate(C);
-  addCheckpoint(-3.5, 0, -63.5, 0);
+  addCheckpoint(-1.6, 0, -63.4, 0);
   addHint(3.5, 0, -63.5, 'Jump over the spinning log! In mid-air, press <b>SHIFT</b> to <b>GROUND POUND</b>.', 'Jump over the spinning log! In mid-air, tap <b>ACTION</b> to <b>GROUND POUND</b>.', 2.8);
-  addLog(0, 0, -72, 9, 1.5);
+  addLog(0, 0, -72, 9, 1.15);
   coinRing(0, 2, -72, 3, 8);
   addTurret(-8, 0, -84);
   addWalker(-5, 0, -67); addWalker(6, 0, -78);
@@ -2251,9 +2811,9 @@ function buildSky() {
 
   // ---- Island 2 ----
   addIsland(0, 0, -26, 10, 10, 'grass', 3);
-  addCheckpoint(-3, 0, -23, 0);
+  addCheckpoint(-1.6, 0, -22.6, 0);
   addToggleSwitch(2.5, 0, -24);
-  addHint(-0.5, 0, -22.2, 'Swap the colors again to cross the <b>BLUE</b> bridge!', null, 2.5);
+  addHint(-3.6, 0, -22.6, 'Swap the colors again to cross the <b>BLUE</b> bridge!', null, 2.5);
   addSpiky(-3.5, 0, -29, 3.5, -29);
   const bz = [-32, -34.2, -36.4, -38.6, -40.8, -43], bt = [0.15, 0.3, 0.45, 0.6, 0.8, 1.0];
   for (let i = 0; i < bz.length; i++) addColorBlock(0, bt[i], bz[i], 2.2, 2.2, 'blue');
@@ -2267,7 +2827,8 @@ function buildSky() {
   // ---- Island 3 (fire bar) ----
   addIsland(0, 1, -50, 12, 12, 'grass', 3);
   addBox(0, 2, -50, 1, 1, 1, 'stone');
-  addFirebar(0, 1.55, -50, 5, 1.8, 0);
+  addFirebar(0, 1.55, -50, 4, 1.35, 0);
+  addCheckpoint(4.2, 1, -45.4, 0);
   addHint(-4.2, 1, -45.2, 'Careful: <b>fire bar</b>! Jump over it or go around.', null, 2.4);
   addBee(4, 4, -47); addWalker(-3, 1, -53.5);
   coinRing(0, 2.2, -50, 5, 8);
@@ -2278,7 +2839,7 @@ function buildSky() {
 
   // ---- Island 4: Simon plaza ----
   addIsland(0, 2, -76, 16, 16, 'grass', 3, { bare: true });
-  addCheckpoint(-5.5, 2, -70, 0);
+  addCheckpoint(2.2, 2, -69.4, 0);
   addHint(-2.4, 2, -69.4, '<b>MEMORY PUZZLE!</b> Step on the <b>white pad</b>, watch the crystal, then step on the colored pads in the <b>same order</b>.', null, 2.6);
   addSpring(6, 2, -70);
   addBox(6, 8.5, -64.5, 4, 4, 0.8, 'cloud');
@@ -2296,6 +2857,7 @@ function buildSky() {
 
   // ---- Goal island ----
   addIsland(0, 3.7, -108, 8, 8, 'grass', 3);
+  addCheckpoint(2.5, 3.7, -105.2, 0);
   addWalker(-2.5, 3.7, -110.5);
   addGoal(0, 3.7, -109, 'star');
 
@@ -2331,6 +2893,7 @@ function buildLava() {
 
   // ---- Crusher bridge ----
   addBox(0, 0, -11, 3, 3, 6, 'castle');
+  addCheckpoint(1.0, 0, -10.6, 0);
   addBox(0, 0, -19, 2.6, 10, 6, 'castle');
   addThwomp(0, 0, -19, 3.4);
   addItem('coin', 0, 6.7, -19); addItem('coin', 1.8, 8.4, -19);
@@ -2340,8 +2903,8 @@ function buildLava() {
 
   // ---- Courtyard puzzle ----
   addBox(0, 0, -44, 24, 24, 6, 'stone');
-  addCheckpoint(-4, 0, -34.5, 0);
-  addHint(-1.5, 0, -34, '<b>PUZZLE:</b> Push the <b>crate</b> onto the switch to raise a bridge out of the lava! (Blue button = reset crate.)', null, 3);
+  addCheckpoint(-1.6, 0, -34.2, 0);
+  addHint(-4.4, 0, -34.4, '<b>PUZZLE:</b> Push the <b>crate</b> onto the switch to raise a bridge out of the lava! (Blue button = reset crate.)', null, 3);
   addBox(0, 1, -44, 4, 4, 1, 'stone');
   addTorchDecor(0, 1, -44);
   addBox(4, 2.5, -38, 2, 2, 2.5, 'castle');
@@ -2353,7 +2916,7 @@ function buildLava() {
   sw.onPress = () => { risers.forEach((rr, i) => rr.rise(0.3 + i * 0.5)); showToast('<b>A bridge rises from the lava!</b>', 3); shakeAmt = 0.3; Snd.S.bridge(); };
   addBox(29, 0, -44, 6, 6, 6, 'castle');
   addBox(29, 1, -44, 1, 1, 1, 'stone');
-  addFirebar(29, 0.55, -44, 4, 1.6, 0);
+  addFirebar(29, 0.55, -44, 4, 1.3, 0);
   addItem('key', 29, 2.1, -44);
   addWalker(5, 0, -34); addWalker(-6, 0, -52); addBee(-2, 4, -47);
   coinLine(14, 1.5, -44, 25, 1.5, -44, 4);
@@ -2374,14 +2937,15 @@ function buildLava() {
 
   // ---- Castle keep ----
   addBox(0, 0, -62, 8, 8, 6, 'castle');
-  addCheckpoint(-2.5, 0, -60.5, 0);
+  addCheckpoint(-1.5, 0, -60.4, 0);
   addWalker(2, 0, -63.5);
   addMover(0, 0, -68, 3, 3, [0, 0, -8.5], 4.5, 0);
   coinLine(0, 1.4, -68, 0, 1.4, -76, 3);
   addBox(0, 1, -84, 8, 10, 6, 'castle');
+  addCheckpoint(2.8, 1, -80.2, 0);
   addHint(-2.8, 1, -79.6, 'Hop over the <b>fire bars</b>, then use the spring to climb the tower!', null, 2.2);
-  addBox(-2, 2, -82, 1, 1, 1, 'stone'); addFirebar(-2, 1.55, -82, 4, 1.7, 0);
-  addBox(2, 2, -86.5, 1, 1, 1, 'stone'); addFirebar(2, 1.55, -86.5, 4, -1.7, Math.PI);
+  addBox(-2, 2, -82, 1, 1, 1, 'stone'); addFirebar(-2, 1.55, -82, 4, 1.35, 0);
+  addBox(2, 2, -86.5, 1, 1, 1, 'stone'); addFirebar(2, 1.55, -86.5, 4, -1.35, Math.PI);
   addBox(6.5, 2.5, -88, 2, 2, 8, 'castle'); addTurret(6.5, 2.5, -88);
   addBee(0, 4.5, -84);
   addFalling(-6.2, 2.4, -82, 2.6, 2.6);
@@ -2417,10 +2981,400 @@ function buildLava() {
   };
 }
 
+// =====================================================================
+// LEVEL 4 — FROSTBITE PEAKS (2.0)
+// =====================================================================
+function snowfall(n, area) {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { pos[i * 3] = (Math.random() - 0.5) * area; pos[i * 3 + 1] = Math.random() * 30; pos[i * 3 + 2] = (Math.random() - 0.5) * area; }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.22, transparent: true, opacity: 0.85, depthWrite: false }));
+  pts.frustumCulled = false;
+  W.root.add(pts);
+  return (dt, t) => {
+    const a = geo.attributes.position.array;
+    for (let i = 0; i < n; i++) {
+      a[i * 3 + 1] -= dt * (1.6 + (i % 5) * 0.25);
+      a[i * 3] += Math.sin(t * 0.7 + i) * dt * 0.4;
+      if (a[i * 3 + 1] < -6) a[i * 3 + 1] += 34;
+    }
+    geo.attributes.position.needsUpdate = true;
+    pts.position.set(Math.round(P.pos.x / 10) * 10, P.pos.y - 6, Math.round(P.pos.z / 10) * 10);
+  };
+}
+function addPine(x, top, z, s) {
+  s = s || 1;
+  const g = new THREE.Group();
+  const trunk = M(G.cyl8, 0x6b3b1f, 0.2 * s, 0.8 * s, 0.2 * s); trunk.position.y = 0.4 * s; g.add(trunk);
+  for (let i = 0; i < 3; i++) {
+    const c = M(G.cone6, 0x2f7a5a, (1.3 - i * 0.3) * s, 1.3 * s, (1.3 - i * 0.3) * s); c.position.y = (1.2 + i * 0.8) * s; g.add(c);
+    const sn = M(G.cone6, 0xffffff, (0.75 - i * 0.18) * s, 0.5 * s, (0.75 - i * 0.18) * s); sn.position.y = (1.65 + i * 0.8) * s; g.add(sn);
+  }
+  shadowy(g, true, false);
+  g.position.set(x, top, z); g.rotation.y = Math.random() * TAU; W.root.add(g);
+  addSolid(x, top + 1.2 * s, z, 0.35 * s, 1.2 * s, 0.35 * s, 'static', null).noCam = true;
+}
+function iceArch(z, top, w, h) {
+  addBox(-w / 2, top + h, z, 1.4, 1.4, h, 'rock');
+  addBox(w / 2, top + h, z, 1.4, 1.4, h, 'rock');
+  const lintel = addBox(0, top + h + 1.2, z, w + 2.4, 1.6, 1.2, 'rock');
+  for (let i = -2; i <= 2; i++) { const ic = M(G.cone6, mat(0xcff2ff, { emissive: 0x2a6a8a }), 0.18, 0.6, 0.18); ic.rotation.x = Math.PI; ic.position.set(i * w / 5, top + h - 0.3, z + 0.7); W.root.add(ic); }
+  return lintel;
+}
+function buildFrost() {
+  setupEnv({ top: 0x4a7fd8, horizon: 0xe4f2ff, bottom: 0xcfe6ff, fog: 0xe4f2ff, fogNear: 60, fogFar: 240, hemiSky: 0xf2f8ff, hemiGround: 0x8aa0c0, hemiI: 0.85, sunColor: 0xfff6ea, sunI: 0.85, amb: 0.24, sunSprite: 0xfff8e0 });
+  W.killY = -14;
+  const r = mulberry(41);
+  // distant snowy peaks
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * TAU + r() * 0.3, d = 150 + r() * 80, s = 25 + r() * 30;
+    const mtn = M(G.cone6, 0x8a9cba, s, s * 1.6, s); mtn.position.set(Math.cos(a) * d, -20 + s * 0.8, Math.sin(a) * d - 50); W.root.add(mtn);
+    const cap = M(G.cone6, 0xffffff, s * 0.45, s * 0.72, s * 0.45); cap.position.set(mtn.position.x, -20 + s * 1.6 - s * 0.36 + 0.5, mtn.position.z); W.root.add(cap);
+  }
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), mat(0xdfeaf6, { emissive: 0x334455 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -22; W.root.add(floor);
+  skyClouds(14, 25, 60, 60, 200, 17);
+
+  // ---- Start plateau ----
+  addIsland(0, 0, 0, 16, 16, 'snow', 3);
+  addHint(-3, 0, 4.5, '<b>FROSTBITE PEAKS!</b> Shiny blue <b>ICE</b> is slippery &mdash; ease off early to stop. Watch for <b>icicles</b> overhead!', null, 3);
+  addPine(-6, 0, -5, 1.1); addPine(6.2, 0, 5.5, 0.9); addPine(-6.5, 0, 5, 0.8);
+  addPenguin(3.5, 0, -4);
+  coinLine(0, 0.9, 3, 0, 0.9, -6, 5);
+  addQBlock(3, 3.4, 1, 'coins');
+  // hidden star 1: invisible ice steps off the east edge
+  addHint(6.6, 0, -1.2, 'Something <b>sparkles</b> out over the edge&hellip;', null, 1.8);
+  addSecretBlock(10.5, -0.4, -1, 2.4, 2.4, 'ice');
+  addSecretBlock(13.8, -0.9, -3.4, 2.4, 2.4, 'ice');
+  addIsland(17, -1.2, -6.5, 3.2, 3.2, 'snow', 1.2, { bare: true });
+  addItem('star', 17, 0.2, -6.5, { idx: 0 });
+
+  // ---- Ice bridge with icicle arches ----
+  const bridge = addBox(0, 0, -14, 5, 12, 2, 'ice'); bridge.ice = 1;
+  iceArch(-11.5, 0, 6, 4.4);
+  const lintel2 = iceArch(-17, 0, 6, 4.4);
+  addIcicle(-1, 4.4, -11.5, 0); addIcicle(1, 4.4, -17, 0);
+  coinLine(0, 0.9, -9.5, 0, 0.9, -19, 5);
+
+  // ---- Island 2 ----
+  addIsland(0, 0, -26, 12, 12, 'snow', 3);
+  addCheckpoint(-1.3, 0, -22.4, 0);
+  addSnowman(3.5, 0, -29.5);
+  addHint(-3.5, 0, -28.5, '<b>Snowmen</b> lob snowballs &mdash; keep moving, then stomp them!', null, 2.2);
+  addPine(-4.6, 0, -30.5, 0.9);
+  // star 2: spring up to the high ledge, then onto the second arch
+  addSpring(5, 0, -23.2);
+  addBox(5, 5.6, -19, 3, 3, 1, 'rock');
+  addItem('star', 0, 6.9, -17, { idx: 1 });
+  addItem('coin', 5, 6.6, -19);
+  void lintel2;
+  // stepping mounds to the rink
+  addIsland(0, 0, -35, 2.6, 2.6, 'snow', 1.5, { bare: true });
+
+  // ---- Ice rink puzzle ----
+  const RZ = -50; // rink center
+  const rink = addBox(0, 0, RZ, 16, 16, 3, 'ice', 'static', { noCast: true }); rink.ice = 0.5;
+  addBox(0, 0, -40, 24, 4, 3, 'snow', 'static', { noCast: true });   // north strip  z -38..-42
+  addBox(0, 0, -62, 24, 8, 3, 'snow', 'static', { noCast: true });   // south strip  z -58..-66
+  addBox(-10, 0, RZ, 4, 16, 3, 'snow', 'static', { noCast: true });  // west strip
+  addBox(10, 0, RZ, 4, 16, 3, 'snow', 'static', { noCast: true });   // east strip
+  // low rink curbs: they stop the crate, but you can just step over them
+  addBox(0, 0.3, -41.75, 16, 0.5, 0.3, 'rock'); addBox(0, 0.3, -58.25, 16, 0.5, 0.3, 'rock');
+  addBox(-8.25, 0.3, RZ, 0.5, 17, 0.3, 'rock'); addBox(8.25, 0.3, RZ, 0.5, 17, 0.3, 'rock');
+  addCheckpoint(-1.2, 0, -39.3, 0);
+  addHint(3.6, 0, -39.2, '<b>ICE PUZZLE:</b> One shove sends the <b>ice crate</b> sliding until it hits something. Stop it right on the <b>yellow switch</b>! (Blue button = reset)', null, 3.2);
+  const cr = addIcePushBlock(1, 0, -45);
+  const pill = (x, z, h, style) => addBox(x, h, z, 2, 2, h, style || 'rock');
+  pill(-5, -45, 1.6); pill(-3, -57, 1.6); pill(3, -49, 1.6); pill(-7, -51, 1.6);
+  pill(7, -55, 6.5, 'ice');
+  const sw = addPressureSwitch(5, 0, -55);
+  addResetPad(-5, 0, -40, [cr]);
+  addItem('star', 7, 7.8, -55, { idx: 2 });
+  coinLine(-3, 0.9, -47, -3, 0.9, -53, 3);
+  coinLine(-1, 0.9, -55, 3, 0.9, -55, 3);
+  addPenguin(-9.5, 0, -50);
+  // gate wall at the south end of the rink area
+  addBox(-7.25, 8, -66, 9.5, 2, 8, 'rock'); addBox(7.25, 8, -66, 9.5, 2, 8, 'rock');
+  const gate = addGate(0, 8, -66, 5, 1, 8);
+  sw.onPress = () => { gate.open(); Snd.S.solve(); showToast('<b>PERFECT STOP!</b> The ice gate opens!', 3); };
+  addPine(-10, 0, -60, 1.1); addPine(10.4, 0, -61, 1); addPine(10, 0, -40, 0.9);
+
+  // ---- Summit climb ----
+  addIsland(0, 0, -71, 4, 4, 'snow', 2, { bare: true });
+  addIsland(0, 1.5, -76.5, 3, 3, 'snow', 1.5, { bare: true });
+  addFalling(3.5, 3, -81, 3, 3);
+  addIsland(0, 4.5, -85.5, 3, 3, 'snow', 1.5, { bare: true });
+  coinLine(0, 2.6, -76.5, 0, 5.6, -85.5, 4);
+  // ---- Summit ----
+  addIsland(0, 6, -95, 12, 14, 'snow', 3);
+  addCheckpoint(-1.3, 6, -89.6, 0);
+  addSnowman(-4, 6, -98);
+  addPenguin(3, 6, -94);
+  iceArch(-93, 6, 6, 4.4);
+  addIcicle(0, 10.4, -93, 6);
+  addPine(4.5, 6, -100, 1.1); addPine(-4.8, 6, -91.5, 0.8);
+  addBox(0, 7, -99.5, 4, 4, 1, 'ice');
+  addGoal(0, 7, -99.5, 'star');
+
+  W.titleFocus = new V3(0, 1, -8);
+  const snow = snowfall(IS_TOUCH ? 220 : 500, 60);
+  W.scenery = (dt, t) => snow(dt, t);
+}
+// =====================================================================
+// LEVEL 5 — GHOST MANOR (2.0)
+// =====================================================================
+function addTombstone(x, top, z, ry) {
+  const g = new THREE.Group();
+  const slab = M(G.box, 0x8a87a0, 0.9, 1.1, 0.25); slab.position.y = 0.55; g.add(slab);
+  const cap = M(G.cyl8, 0x8a87a0, 0.45, 0.25, 0.45); cap.rotation.x = Math.PI / 2; cap.position.y = 1.1; g.add(cap);
+  const crossV = M(G.box, 0x5a5770, 0.12, 0.45, 0.04); crossV.position.set(0, 0.75, 0.14); g.add(crossV);
+  const crossH = M(G.box, 0x5a5770, 0.3, 0.1, 0.04); crossH.position.set(0, 0.82, 0.14); g.add(crossH);
+  shadowy(g, true, false);
+  g.position.set(x, top, z); g.rotation.set(0, ry || 0, (Math.random() - 0.5) * 0.15); W.root.add(g);
+  addSolid(x, top + 0.6, z, 0.45, 0.6, 0.2, 'static', null).noCam = true;
+}
+function addDeadTree(x, top, z, s) {
+  s = s || 1;
+  const g = new THREE.Group();
+  const tm = mat(0x3a2e40);
+  const trunk = new THREE.Mesh(G.cyl8, tm); trunk.scale.set(0.25 * s, 3 * s, 0.25 * s); trunk.position.y = 1.5 * s; g.add(trunk);
+  for (let i = 0; i < 4; i++) {
+    const br = new THREE.Mesh(G.cyl8, tm); br.scale.set(0.09 * s, 1.4 * s, 0.09 * s);
+    const a = (i / 4) * TAU + 0.5;
+    br.position.set(Math.cos(a) * 0.5 * s, (2 + i * 0.3) * s, Math.sin(a) * 0.5 * s);
+    br.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9); g.add(br);
+  }
+  g.position.set(x, top, z); W.root.add(g);
+  addSolid(x, top + 1.5 * s, z, 0.3 * s, 1.5 * s, 0.3 * s, 'static', null).noCam = true;
+}
+function addLantern(x, top, z, color) {
+  const g = new THREE.Group();
+  const post = M(G.cyl8, 0x2a2344, 0.08, 2.2, 0.08); post.position.y = 1.1; g.add(post);
+  const box = new THREE.Mesh(G.box, basic(color || 0xffc070)); box.scale.set(0.32, 0.4, 0.32); box.position.y = 2.35; g.add(box);
+  const roof = M(G.cone, 0x2a2344, 0.3, 0.25, 0.3); roof.position.y = 2.68; g.add(roof);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: color || 0xffa040, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.scale.setScalar(3.5); glow.position.y = 2.35; g.add(glow);
+  g.position.set(x, top, z); W.root.add(g);
+}
+function buildManor() {
+  setupEnv({ top: 0x0c0820, horizon: 0x4a2a6a, bottom: 0x2a1a40, fog: 0x2a1c44, fogNear: 40, fogFar: 170, hemiSky: 0xb8a8ff, hemiGround: 0x2a2040, hemiI: 0.75, sunColor: 0xc8d0ff, sunI: 0.75, amb: 0.22 });
+  W.killY = -14;
+  // moon
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0xfff6d0, transparent: true, fog: false, depthWrite: false, blending: THREE.AdditiveBlending }));
+  moon.scale.setScalar(120); moon.position.set(-150, 160, -320); W.sky.add(moon);
+  const moonCore = new THREE.Mesh(new THREE.CircleGeometry(16, 24), new THREE.MeshBasicMaterial({ color: 0xfff8e0, fog: false }));
+  moonCore.position.copy(moon.position); moonCore.lookAt(0, 0, 0); W.sky.add(moonCore);
+  // stars in the sky
+  const sg = new THREE.BufferGeometry(), sp = new Float32Array(300 * 3), rr = mulberry(77);
+  for (let i = 0; i < 300; i++) { const a = rr() * TAU, el = 0.15 + rr() * 1.2; sp[i * 3] = Math.cos(a) * Math.cos(el) * 450; sp[i * 3 + 1] = Math.sin(el) * 450; sp[i * 3 + 2] = Math.sin(a) * Math.cos(el) * 450; }
+  sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  W.sky.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, fog: false })));
+  // misty floor far below
+  const mist = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), basic(0x3a2a5a, { transparent: true, opacity: 0.9 }));
+  mist.rotation.x = -Math.PI / 2; mist.position.y = -16; W.root.add(mist);
+  const r = mulberry(55);
+  for (let i = 0; i < 12; i++) {
+    const a = r() * TAU, d = 120 + r() * 90;
+    const sil = M(G.box, 0x1a1030, 10 + r() * 20, 30 + r() * 40, 10 + r() * 20); sil.position.set(Math.cos(a) * d, -10, Math.sin(a) * d - 50); W.root.add(sil);
+  }
+
+  // ---- Graveyard start ----
+  addIsland(0, 0, 0, 16, 16, 'grave', 3, { bare: true });
+  addHint(-3, 0, 4.5, '<b>GHOST MANOR!</b> Ghosts creep closer when you <b>turn your back</b>. Face them to freeze them, then <b>SPIN</b> to bust them!',
+    '<b>GHOST MANOR!</b> Ghosts creep closer when you <b>turn your back</b>. Face them to freeze them, then tap <b>ACTION</b> to spin!', 3);
+  for (const [x, z, ry] of [[-5, -3, 0.2], [-3, -5, -0.1], [5, -2, 0.1], [4.5, 3, -0.2], [-6, 2, 0.3]]) addTombstone(x, 0, z, ry);
+  addDeadTree(6, 0, -6, 1); addDeadTree(-6.5, 0, -6.2, 0.8);
+  addLantern(-2.5, 0, -7.2); addLantern(2.5, 0, -7.2, 0xa0ffc0);
+  addGhost(2, 1.2, -5);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  addHint(2.8, 0, -6.6, '<b>Phantom platforms</b> fade in and out. When they <b>flicker</b>, jump!', null, 2.2);
+
+  // ---- Phantom path (two alternating groups: one is always solid) ----
+  const ph = [[0, -11.5, 0], [0, -15, 2], [0, -18.5, 0], [0, -22, 2]];
+  for (const [x, z, p] of ph) addPhantom(x, 0, z, 2.8, 2.8, 2.8, 1.2, p);
+  coinLine(0, 1.2, -11.5, 0, 1.2, -22, 4);
+  addIsland(0, 0, -25.7, 2.4, 2.4, 'grave', 1.5, { bare: true });
+  // hidden star 3: secret steps off the phantom path to a floating crypt
+  addSecretBlock(3.6, 0.4, -18.5, 2.2, 2.2, 'phantom');
+  addSecretBlock(6.8, 0.9, -20.5, 2.2, 2.2, 'phantom');
+  addIsland(10, 1.2, -22.5, 3.4, 3.4, 'grave', 1.5, { bare: true });
+  addTombstone(10.8, 1.2, -23.4, 0);
+  addItem('star', 9.8, 2.6, -22, { idx: 2 });
+
+  // ---- Courtyard with the candle puzzle ----
+  addIsland(0, 0, -40, 24, 24, 'grave', 3, { bare: true });
+  addCheckpoint(-1.3, 0, -29.6, 0);
+  addHint(3, 0, -29.6, '<b>CANDLE PUZZLE:</b> <b>GROUND POUND</b> each of the 4 candles to light it (jump, then press <b>SHIFT</b>). Light them all before any burns out!',
+    '<b>CANDLE PUZZLE:</b> <b>GROUND POUND</b> each of the 4 candles to light it (jump, then tap <b>ACTION</b>). Light them all before any burns out!', 3);
+  // ledges
+  addBox(6.2, 1.2, -33.5, 1.8, 1.8, 1.2, 'manor');          // crate step
+  addBox(9, 2.6, -37, 4, 4, 2.6, 'manor');                   // C2 ledge  top 2.6
+  addBox(8.5, 3.7, -42, 2.4, 2.4, 0.8, 'manor');             // floating step top 3.7
+  addBox(8, 4.8, -47, 4, 3, 1, 'manor');                     // C4 balcony top 4.8
+  addBox(-8, 3.4, -46, 4, 4, 3.4, 'manor');                  // mausoleum top 3.4
+  addBox(-5.2, 1.2, -46, 1.6, 1.6, 1.2, 'manor');            // tomb step
+  const candles = [[-8, 0, -34], [9.5, 2.6, -37.5], [8.5, 4.8, -47.2], [-8.3, 3.4, -46.3]];
+  const doorGate = { g: null };
+  W.candles = addCandles({ spots: candles, duration: 40, onAll: () => doorGate.g.open() });
+  addLantern(-10.5, 0, -29.5); addLantern(10.5, 0, -29.5, 0xa0ffc0); addLantern(-10.5, 0, -51); addLantern(10.5, 0, -51);
+  addGhost(-4, 1.2, -42); addGhost(5, 1.5, -46);
+  addTombstone(-2, 0, -36, 0.1); addTombstone(3, 0, -38, -0.2); addTombstone(-3, 0, -48, 0);
+  addDeadTree(-10, 0, -40, 1.1);
+  coinRing(0, 0.9, -41, 3, 8);
+  addQBlock(0, 3.4, -44, '1up');
+  // hidden star 1: invisible steps off the west side
+  addSecretBlock(-14, 0.5, -38, 2.2, 2.2, 'phantom');
+  addSecretBlock(-17.2, 1.2, -40.5, 2.2, 2.2, 'phantom');
+  addIsland(-20.5, 2, -43, 3, 3, 'grave', 1.2, { bare: true });
+  addItem('star', -20.5, 3.4, -43, { idx: 0 });
+
+  // ---- Manor facade + gate ----
+  addBox(-7.25, 10, -52, 9.5, 1.5, 10, 'manor'); addBox(7.25, 10, -52, 9.5, 1.5, 10, 'manor');
+  addBox(0, 10, -52, 5, 1.5, 4, 'manor');
+  doorGate.g = addGate(0, 6, -52, 5, 1, 6);
+  for (const x of [-9, -5, 5, 9]) { const w = new THREE.Mesh(G.box, basic(0xffd27a)); w.scale.set(1.4, 1.8, 0.1); w.position.set(x, 6.5, -51.2); W.root.add(w); }
+  const roofL = M(G.cone, 0x2a1c3c, 8, 5, 3); roofL.scale.set(13, 5, 2); roofL.position.set(0, 12.5, -52.6); roofL.rotation.y = Math.PI / 4; W.root.add(roofL);
+
+  // ---- Haunted hall ----
+  addBox(0, 0, -56, 14, 8, 4, 'manor');          // floor A  z -52..-60
+  addCheckpoint(-1.3, 0, -54.2, 0);
+  addHint(4.2, 0, -54.6, 'More phantom floor ahead &mdash; and the ghosts are <b>hungry</b>. Keep an eye behind you!', null, 2.2);
+  addPhantom(-2.2, 0, -61.7, 2.8, 2.8, 2.6, 1.4, 0); addPhantom(2.2, 0, -61.7, 2.8, 2.8, 2.6, 1.4, 2);
+  addPhantom(-2.2, 0, -64.3, 2.8, 2.8, 2.6, 1.4, 2); addPhantom(2.2, 0, -64.3, 2.8, 2.8, 2.6, 1.4, 0);
+  addBox(0, 0, -70, 14, 8, 4, 'manor');          // floor B  z -66..-74
+  addCheckpoint(1.4, 0, -67.4, 0);
+  addGhost(-3, 1.3, -69); addGhost(3.5, 1.3, -72);
+  // walls (scenery)
+  addBox(-7.5, 9, -63, 1, 22, 13, 'manor', 'static', { noCast: true }); addBox(7.5, 9, -63, 1, 22, 13, 'manor', 'static', { noCast: true });
+  for (const z of [-56, -62, -68, -74]) { addTorchDecor(-6.4, 0, z); addTorchDecor(6.4, 0, z); }
+  // star 2: spring to the chandelier
+  addSpring(-4.5, 0, -69.3);
+  addBox(-4.5, 6.5, -65.5, 3, 3, 0.5, 'gold');
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; const cnd = new THREE.Mesh(G.cyl8, mat(0xf4ecd8)); cnd.scale.set(0.08, 0.35, 0.08); cnd.position.set(-4.5 + Math.cos(a) * 1.3, 6.7, -65.5 + Math.sin(a) * 1.3); W.root.add(cnd); const fl = new THREE.Mesh(G.cone6, basic(0xffb030)); fl.scale.set(0.07, 0.18, 0.07); fl.position.set(cnd.position.x, 7, cnd.position.z); W.root.add(fl); }
+  const chain = M(G.cyl8, 0x2a2344, 0.05, 8, 0.05); chain.position.set(-4.5, 10.5, -65.5); W.root.add(chain);
+  addItem('star', -4.5, 7.9, -65.5, { idx: 1 });
+  // stairs up to the roof
+  addBox(0, 1.4, -75.5, 6, 3, 1.4, 'manor');
+  addBox(0, 2.8, -78, 6, 2, 2.8, 'manor');
+  addBox(0, 4.2, -80, 6, 2, 4.2, 'manor');
+  addBox(0, 5.6, -84, 8, 6, 5.6, 'manor');
+  addLantern(-3.3, 5.6, -82); addLantern(3.3, 5.6, -82, 0xa0ffc0);
+  addGoal(0, 5.6, -85.2, 'star');
+
+  W.titleFocus = new V3(0, 1, -8);
+  W.scenery = (dt, t) => { mist.position.y = -16 + Math.sin(t * 0.4) * 0.3; };
+}
+// =====================================================================
+// LEVEL 6 — CLOCKWORK FACTORY (2.0)
+// =====================================================================
+function addSmokestack(x, z, h) {
+  const c = M(G.cyl8, 0x5a4a44, 3, h, 3); c.position.set(x, -20 + h / 2, z); W.root.add(c);
+  const band = M(G.cyl8, 0xb07a25, 3.2, 1.2, 3.2); band.position.set(x, -20 + h - 3, z); W.root.add(band);
+  return new V3(x, -20 + h + 1, z);
+}
+function buildFactory() {
+  setupEnv({ top: 0x3a2a4a, horizon: 0xffa66a, bottom: 0xc0704a, fog: 0xd8906a, fogNear: 60, fogFar: 220, hemiSky: 0xffe0c0, hemiGround: 0x6a4a3a, hemiI: 0.8, sunColor: 0xffd0a0, sunI: 0.9, amb: 0.22, sunSprite: 0xffb070 });
+  W.killY = -14;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), mat(0x4a3a36));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -22; W.root.add(floor);
+  const r = mulberry(91);
+  const stacks = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * TAU + r() * 0.4, d = 90 + r() * 80;
+    stacks.push(addSmokestack(Math.cos(a) * d, Math.sin(a) * d - 50, 40 + r() * 40));
+    const bld = M(G.box, 0x5a4a50, 20 + r() * 20, 20 + r() * 30, 20 + r() * 20); bld.position.set(Math.cos(a + 0.3) * (d + 20), -15, Math.sin(a + 0.3) * (d + 20) - 50); W.root.add(bld);
+  }
+  // big background gears
+  const bgGears = [];
+  for (let i = 0; i < 4; i++) {
+    const gg = M(G.cyl, 0x6a5040, 14 + i * 3, 2, 14 + i * 3); gg.rotation.x = Math.PI / 2; gg.position.set(-70 + i * 45, 10 + (i % 2) * 15, -170); W.root.add(gg); bgGears.push(gg);
+  }
+
+  // ---- Start platform ----
+  addIsland(0, 0, 0, 14, 14, 'metal', 3, { bare: true });
+  addHint(-3, 0, 4, '<b>CLOCKWORK FACTORY!</b> Robots <b>spark</b> every few seconds &mdash; only stomp them when they are <b>NOT glowing blue</b>.', null, 3);
+  addRobot(2.5, 0, -2, 2.5, -5.5, 0);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  addBox(-5, 1, -5, 2, 2, 1, 'brass'); addBox(5.2, 0.8, 4.6, 1.6, 1.6, 0.8, 'brass');
+  addHint(3, 0, -6, '<b>Conveyor belts</b> carry you along. Ride the arrows!', null, 2);
+
+  // ---- Conveyor A (forward) ----
+  addConveyor(0, 0, -13, 4, 12, 0, -4);
+  coinLine(0, 1, -9, 0, 1, -17, 4);
+  addBox(0, 0, -23, 6, 8, 3, 'metal');
+  addCheckpoint(-1.6, 0, -21.2, 0);
+  // ---- Conveyor B (sideways) + piston ----
+  addConveyor(0, 0, -32, 5, 10, 2.6, 0);
+  addPiston(4.4, 1.3, -32, 2, 2, 1.3, 'x', -2.2, 3.6, 0.2);
+  addHint(-2.6, 0, -21.4, 'This belt drags you <b>sideways</b> and the <b>piston</b> shoves! Wait for the red light to stop.', null, 2);
+  // star 1: hop onto the piston housing, then up to the ledge
+  addBox(7.9, 3.2, -32, 2.6, 2.6, 0.6, 'brass');
+  addItem('star', 7.9, 4.5, -32, { idx: 0 });
+
+  // ---- Island C ----
+  addIsland(0, 0, -44, 12, 10, 'metal', 3, { bare: true });
+  addCheckpoint(-1.3, 0, -40.4, 0);
+  addHint(3, 0, -40.2, '<b>Spinning gears</b> turn you around &mdash; keep your eyes on the next one.', null, 2.4);
+  addRobot(-3, 0, -46.5, 3, -46.5, 1.7);
+  addQBlock(3.5, 3.4, -44, 'coins');
+
+  // ---- Gears ----
+  addGear(0, 0, -54, 3, 0.65);
+  addGear(3, 0.8, -61, 3, -0.75);
+  coinRing(0, 1.2, -54, 1.6, 6);
+  // hidden star 2: invisible steps east of the second gear
+  addSecretBlock(7.6, 1.2, -61, 2.2, 2.2, 'brass');
+  addSecretBlock(10.8, 1.8, -62.5, 2.2, 2.2, 'brass');
+  addBox(14, 2.4, -64, 3, 3, 1, 'metal');
+  addItem('star', 14, 3.8, -64, { idx: 1 });
+
+  // ---- Island D: lever puzzle ----
+  addIsland(0, 1.6, -72, 16, 14, 'metal', 3, { bare: true });
+  addCheckpoint(-1.3, 1.6, -66.2, 0);
+  addHint(2.8, 1.6, -66.2, '<b>LEVER PUZZLE:</b> Each lever flips some of the three <b>lights</b> over the gate. Light <b>all three</b> to open it!', null, 2.6);
+  addBox(-6.25, 9.6, -79, 9.5, 1, 8, 'metal'); addBox(6.25, 9.6, -79, 9.5, 1, 8, 'metal');
+  const gate = addGate(0, 7.6, -79, 3, 1, 6);
+  addBox(0, 9.6, -79, 3, 1, 2, 'metal');
+  W.levers = addLeverPuzzle({
+    top: 1.6, init: [0, 1, 0],
+    lamps: [[-3.2, 9.6, -78.6, 1.4], [0, 9.6, -78.6, 1.4], [3.2, 9.6, -78.6, 1.4]],
+    levers: [[-4.5, -73, [0], 'A'], [0, -71.5, [0, 1], 'B'], [4.5, -73, [1, 2], 'C']],
+    onSolve: () => gate.open(),
+  });
+  addRobot(-6, 1.6, -76, 6, -76, 0.9);
+  // star 3: spring to the crane
+  addSpring(6.2, 1.6, -67.5);
+  addBox(6.2, 8.8, -71.8, 3, 3, 0.6, 'brass');
+  const mast = M(G.box, 0xb07a25, 0.5, 9, 0.5); mast.position.set(7.9, 6, -73.4); W.root.add(mast);
+  const jib = M(G.box, 0xb07a25, 10, 0.4, 0.4); jib.position.set(3, 10.6, -73.4); W.root.add(jib);
+  addItem('star', 6.2, 10.1, -71.8, { idx: 2 });
+
+  // ---- Final run: conveyor to the goal ----
+  addConveyor(0, 1.6, -83.75, 4, 9.5, 0, -3);
+  addPiston(4.1, 2.9, -85, 2, 2, 1.3, 'x', -2.2, 3.2, 0.6);
+  addIsland(0, 1.6, -94, 10, 10, 'metal', 3, { bare: true });
+  addRobot(-3, 1.6, -92, 3, -92, 2.4);
+  addBox(0, 2.6, -96.5, 4, 4, 1, 'brass');
+  addGoal(0, 2.6, -96.5, 'star');
+
+  W.titleFocus = new V3(0, 1, -10);
+  let puffT = 0;
+  W.scenery = (dt, t) => {
+    for (let i = 0; i < bgGears.length; i++) bgGears[i].rotation.y += dt * (i % 2 ? -0.2 : 0.25);
+    puffT += dt;
+    if (puffT > 0.5) { puffT = 0; const s = stacks[(Math.random() * stacks.length) | 0]; burst(s.x, s.y, s.z, 0x8a7a80, 2, 3, 3, -1.5, 6); }
+    void t;
+  };
+}
+
 const LEVELS = [
   { name: 'GROK MEADOWS', sub: 'WORLD 1', build: buildMeadows, start: [0, 0, 8], blurb: 'Crate puzzle · key & cage' },
   { name: 'SKY ISLANDS', sub: 'WORLD 2', build: buildSky, start: [0, 0, 4], blurb: 'Color switches · memory pads' },
   { name: 'LAVA CASTLE', sub: 'WORLD 3', build: buildLava, start: [0, 0, 5], blurb: 'Lava bridge · locked castle' },
+  { name: 'FROSTBITE PEAKS', sub: 'WORLD 4', build: buildFrost, start: [0, 0, 5], blurb: 'Sliding ice-crate puzzle · icicles · snowmen', isNew: true },
+  { name: 'GHOST MANOR', sub: 'WORLD 5', build: buildManor, start: [0, 0, 5], blurb: 'Candle puzzle · phantom floors · shy ghosts', isNew: true },
+  { name: 'CLOCKWORK FACTORY', sub: 'WORLD 6', build: buildFactory, start: [0, 0, 5], blurb: 'Lever-light puzzle · gears · conveyors · robots', isNew: true },
 ];
 function loadLevel(i) {
   clearWorld();
@@ -2438,9 +3392,13 @@ function loadLevel(i) {
 const hudEls = { hearts: $('hearts'), lives: $('lives'), coins: $('coins'), stars: $('stars'), key: $('key-pill') };
 const hudCache = {};
 function updateHUD(force, bumpWhich) {
+  if (hudEls.hearts.children.length !== P.maxHealth) {
+    hudEls.hearts.innerHTML = '';
+    for (let i = 0; i < P.maxHealth; i++) { const h = document.createElement('span'); h.className = 'heart on'; h.innerHTML = '&#9829;'; hudEls.hearts.appendChild(h); }
+  }
   const hs = hudEls.hearts.children;
   for (let i = 0; i < hs.length; i++) hs[i].className = 'heart ' + (i < P.health ? 'on' : 'off');
-  const vals = { lives: run.lives, coins: run.levelCoins || 0, stars: run.stars.filter(Boolean).length };
+  const vals = { lives: save.easy ? '\u221e' : run.lives, coins: run.levelCoins || 0, stars: run.stars.filter(Boolean).length };
   for (const k in vals) {
     if (hudCache[k] !== vals[k] || force) {
       hudEls[k].textContent = vals[k];
@@ -2475,10 +3433,12 @@ function showBanner(sub, title) {
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => b.classList.remove('show'), 2600);
 }
-const CARDS = ['title-card', 'pause-card', 'complete-card', 'gameover-card'];
+const CARDS = ['title-card', 'map-card', 'pause-card', 'complete-card', 'gameover-card'];
+let curCard = 'title-card';
 function showCard(id) {
   $('overlay').classList.add('show');
   for (const c of CARDS) $(c).classList.toggle('hidden', c !== id);
+  curCard = id;
   const btn = $(id).querySelector('.btn.primary');
   if (btn && !IS_TOUCH) setTimeout(() => btn.focus({ preventScroll: true }), 50);
 }
@@ -2489,17 +3449,70 @@ function setPlayingUI(on) {
   $('touch-ui').classList.toggle('hidden', !(on && IS_TOUCH));
   document.body.classList.toggle('title-mode', !on);
 }
-function renderLevelSelect() {
-  const wrap = $('level-select');
+// ---- 2.0 world map ----
+const MAP_POS = [[9, 74], [25, 34], [41, 70], [58, 30], [74, 68], [90, 30]];
+const MAP_COLORS = ['#3fbf46', '#9b6bff', '#e0502c', '#38b6ff', '#7a4ad8', '#d08a2a'];
+let mapSel = 0;
+function totalStars() { return save.stars.reduce((a, s) => a + s.reduce((x, y) => x + y, 0), 0); }
+function renderMap() {
+  const wrap = $('world-map');
   wrap.innerHTML = '';
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100'); svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('class', 'map-path');
+  const path = document.createElementNS(NS, 'path');
+  let d = '';
+  MAP_POS.forEach((p, i) => {
+    if (!i) { d += 'M ' + p[0] + ' ' + p[1]; return; }
+    const q = MAP_POS[i - 1];
+    d += ' C ' + ((q[0] + p[0]) / 2) + ' ' + q[1] + ', ' + ((q[0] + p[0]) / 2) + ' ' + p[1] + ', ' + p[0] + ' ' + p[1];
+  });
+  path.setAttribute('d', d); svg.appendChild(path);
+  wrap.appendChild(svg);
   LEVELS.forEach((L, i) => {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'lvl-btn lvl-' + i;
-    const st = save.stars[i].map((s) => (s ? '&#9733;' : '<span class="no">&#9733;</span>')).join('');
-    b.innerHTML = '<div class="n">' + L.sub + '</div><div class="t">' + L.name + '</div><div class="s">' + st + '</div><div class="c">' + (save.cleared[i] ? '&#10004; CLEARED' : L.blurb) + '</div>';
-    b.addEventListener('click', () => { run.lives = 5; run.coins = 0; startLevel(i); });
+    b.type = 'button';
+    b.className = 'map-node' + (i === mapSel ? ' sel' : '') + (save.cleared[i] ? ' cleared' : '');
+    b.style.left = MAP_POS[i][0] + '%'; b.style.top = MAP_POS[i][1] + '%';
+    b.style.setProperty('--nc', MAP_COLORS[i]);
+    const got = save.stars[i].reduce((a, x) => a + x, 0);
+    b.innerHTML = '<span class="num">' + (i + 1) + '</span><span class="ms">' + '&#9733;'.repeat(got) + '<span class="no">' + '&#9733;'.repeat(3 - got) + '</span></span>' +
+      (L.isNew && !save.cleared[i] ? '<span class="new">NEW</span>' : '') + (save.cleared[i] ? '<span class="ok">&#10004;</span>' : '');
+    b.setAttribute('aria-label', L.sub + ' ' + L.name);
+    b.addEventListener('click', () => {
+      Snd.init(); Snd.S.click();
+      if (mapSel === i) { playFromMap(); return; }
+      mapSel = i; renderMap();
+    });
     wrap.appendChild(b);
   });
+  const hero = document.createElement('div'); hero.className = 'map-hero';
+  hero.style.left = MAP_POS[mapSel][0] + '%'; hero.style.top = MAP_POS[mapSel][1] + '%';
+  wrap.appendChild(hero);
+  const L = LEVELS[mapSel];
+  $('map-name').textContent = L.sub + ' \u00b7 ' + L.name;
+  $('map-blurb').textContent = L.blurb;
+  const got = save.stars[mapSel];
+  $('map-stars').innerHTML = got.map((s) => (s ? '<span class="got">&#9733;</span>' : '<span class="no">&#9733;</span>')).join('') +
+    (save.bestTime[mapSel] ? ' <span class="bt">best ' + fmtTime(save.bestTime[mapSel]) + '</span>' : '');
+  $('map-total').textContent = totalStars() + ' / ' + (LEVELS.length * 3) + ' \u2605';
+}
+function openMap(sel) {
+  if (sel !== undefined) mapSel = sel;
+  else { const f = save.cleared.findIndex((c, i) => i < LEVELS.length && !c); mapSel = f < 0 ? 0 : f; }
+  renderMap();
+  showCard('map-card');
+}
+function playFromMap() { run.lives = 5; run.coins = 0; startLevel(mapSel); }
+function renderEasy() {
+  const b = $('easy-btn');
+  b.classList.toggle('on', !!save.easy);
+  b.innerHTML = 'EASY MODE: <b>' + (save.easy ? 'ON' : 'OFF') + '</b><small>' + (save.easy ? '5 hearts &middot; infinite lives &middot; extra ledge help' : 'tap for 5 hearts &amp; infinite lives') + '</small>';
+}
+function setEasy(v) { save.easy = !!v; persist(); renderEasy(); }
+function renderLevelSelect() {
+  $('title-stars').textContent = totalStars() + ' / ' + (LEVELS.length * 3);
+  renderEasy();
 }
 
 // =====================================================================
@@ -2511,6 +3524,7 @@ function startLevel(i) {
   curLevel = i;
   run.stars = [false, false, false]; run.levelCoins = 0; run.time = 0; run.enemies = 0;
   if (run.lives <= 0) run.lives = 5;
+  P.maxHealth = save.easy ? 5 : 3;
   P.health = P.maxHealth; P.hasKey = false; P.invuln = 0;
   loadLevel(i);
   mode = 'playing';
@@ -2537,6 +3551,7 @@ function winLevel(goal) {
   save.cleared[curLevel] = 1;
   run.stars.forEach((s, i) => { if (s) save.stars[curLevel][i] = 1; });
   save.bestCoins[curLevel] = Math.max(save.bestCoins[curLevel] || 0, run.levelCoins);
+  if (!save.bestTime[curLevel] || run.time < save.bestTime[curLevel]) save.bestTime[curLevel] = Math.round(run.time);
   persist();
   setTimeout(showComplete, 2700);
 }
@@ -2547,13 +3562,13 @@ function showComplete() {
   setPlayingUI(false);
   const last = curLevel === LEVELS.length - 1;
   $('complete-kicker').textContent = LEVELS[curLevel].sub + ' \u00b7 ' + LEVELS[curLevel].name;
-  const totalStars = save.stars.reduce((a, s) => a + s.reduce((x, y) => x + y, 0), 0);
-  $('complete-title').textContent = last ? 'YOU BEAT GROK LAND!' : 'COURSE CLEAR!';
+  const allStars = totalStars();
+  $('complete-title').textContent = last ? 'YOU BEAT GROK LAND 2.0!' : 'COURSE CLEAR!';
   $('complete-stars').innerHTML = run.stars.map((s, i) => '<span class="' + (s ? 'got' : 'no') + '" style="animation-delay:' + (0.2 + i * 0.25) + 's">&#9733;</span>').join('');
-  const rows = [['Coins', run.levelCoins], ['Stars found', run.stars.filter(Boolean).length + ' / 3'], ['Enemies bopped', run.enemies], ['Time', fmtTime(run.time)], ['Lives left', run.lives]];
-  if (last) rows.push(['All-time stars', totalStars + ' / 9']);
+  const rows = [['Coins', run.levelCoins], ['Stars found', run.stars.filter(Boolean).length + ' / 3'], ['Enemies bopped', run.enemies], ['Time', fmtTime(run.time)], ['Lives left', save.easy ? '\u221e' : run.lives]];
+  rows.push(['All-time stars', allStars + ' / ' + (LEVELS.length * 3)]);
   $('complete-stats').innerHTML = rows.map((r) => '<div>' + r[0] + '</div><div>' + r[1] + '</div>').join('');
-  $('next-btn').textContent = last ? 'PLAY AGAIN (WORLD 1)' : 'NEXT WORLD \u25b6';
+  $('next-btn').textContent = last ? 'WORLD MAP' : 'NEXT WORLD \u25b6';
   showCard('complete-card');
   renderLevelSelect();
 }
@@ -2580,7 +3595,7 @@ function togglePause() {
     if (P.state === 'win') return;
     mode = 'paused';
     Snd.stopMusic(); Snd.S.pause();
-    $('pause-tip').innerHTML = 'Stars this run: <b>' + run.stars.filter(Boolean).length + ' / 3</b> &middot; Coins: <b>' + run.levelCoins + '</b>';
+    $('pause-tip').innerHTML = 'Stars this run: <b>' + run.stars.filter(Boolean).length + ' / 3</b> &middot; Coins: <b>' + run.levelCoins + '</b>' + (save.easy ? ' &middot; <b>EASY MODE</b>' : '');
     showCard('pause-card');
   } else if (mode === 'paused') {
     resume();
@@ -2604,11 +3619,16 @@ function toggleMute() {
 function onBtn(id, fn) {
   $(id).addEventListener('click', (e) => { Snd.init(); Snd.S.click(); fn(e); e.currentTarget.blur(); });
 }
-onBtn('play-btn', () => { run.lives = 5; run.coins = 0; let first = save.cleared.findIndex((c) => !c); if (first < 0) first = 0; startLevel(first); });
+onBtn('play-btn', () => { run.lives = 5; run.coins = 0; let first = save.cleared.findIndex((c, i) => i < LEVELS.length && !c); if (first < 0) first = 0; startLevel(first); });
+onBtn('map-btn', () => openMap());
+onBtn('easy-btn', () => setEasy(!save.easy));
+onBtn('map-play', playFromMap);
+onBtn('map-back', () => { renderLevelSelect(); showCard('title-card'); });
+onBtn('complete-map-btn', () => { goTitle(); openMap(Math.min(curLevel + 1, LEVELS.length - 1)); });
 onBtn('resume-btn', resume);
 onBtn('restart-btn', () => startLevel(curLevel));
 onBtn('pause-title-btn', goTitle);
-onBtn('next-btn', () => { if (curLevel === LEVELS.length - 1) { run.lives = 5; run.coins = 0; startLevel(0); } else startLevel(curLevel + 1); });
+onBtn('next-btn', () => { if (curLevel === LEVELS.length - 1) { goTitle(); openMap(curLevel); } else startLevel(curLevel + 1); });
 onBtn('replay-btn', () => startLevel(curLevel));
 onBtn('complete-title-btn', goTitle);
 onBtn('retry-btn', () => { run.lives = 5; run.coins = 0; startLevel(curLevel); });
@@ -2621,7 +3641,7 @@ $('mute-btn').classList.toggle('off', !!save.muted);
 // Input wiring
 // =====================================================================
 function handleEnter() {
-  if (mode === 'title') $('play-btn').click();
+  if (mode === 'title') { if (curCard === 'map-card') playFromMap(); else $('play-btn').click(); }
   else if (mode === 'complete') $('next-btn').click();
   else if (mode === 'gameover') $('retry-btn').click();
   else if (mode === 'paused') resume();
@@ -2638,6 +3658,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
   if (e.code === 'KeyM') toggleMute();
   if (e.code === 'Enter' && mode !== 'playing') { e.preventDefault(); handleEnter(); }
+  if (mode === 'title' && curCard === 'map-card' && (e.code === 'ArrowRight' || e.code === 'ArrowLeft' || e.code === 'KeyD' || e.code === 'KeyA')) {
+    mapSel = (mapSel + (e.code === 'ArrowRight' || e.code === 'KeyD' ? 1 : LEVELS.length - 1)) % LEVELS.length; renderMap(); Snd.S.click();
+  }
+  if (mode === 'title' && curCard === 'map-card' && e.code === 'Escape') { renderLevelSelect(); showCard('title-card'); }
 });
 window.addEventListener('keyup', (e) => {
   keys[e.code] = false;
@@ -2762,6 +3786,15 @@ function worldTick(dt) {
   for (let i = W.anim.length - 1; i >= 0; i--) { const a = W.anim[i]; if (a.f(dt, a)) W.anim.splice(i, 1); }
   const g = P.ground;
   if (g && g.active && (g.dx || g.dy || g.dz) && P.state !== 'dead' && !P.frozen) { P.pos.x += g.dx; P.pos.y += g.dy; P.pos.z += g.dz; }
+  if (g && g.active && P.grounded && P.state !== 'dead' && !P.frozen) {
+    if (g.conv) { P.wasGrounded = true; pMove('x', g.conv[0] * dt); pMove('z', g.conv[1] * dt); }
+    if (g.spinD) {
+      const ox = P.pos.x - g.x, oz = P.pos.z - g.z, c = Math.cos(g.spinD), sn = Math.sin(g.spinD);
+      P.wasGrounded = true;
+      pMove('x', (ox * c + oz * sn) - ox); pMove('z', (-ox * sn + oz * c) - oz);
+      P.facing += g.spinD;
+    }
+  }
   if (P.state !== 'dead' && !P.frozen) resolveOverlaps();
   playerTick(dt);
   updateEnemies(dt);
@@ -2809,6 +3842,9 @@ scene.add(P.model.root);
 P.blob = new THREE.Mesh(G.circle, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));
 P.blob.renderOrder = 2;
 scene.add(P.blob);
+P.ring = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, depthWrite: false }));
+P.ring.renderOrder = 3; P.ring.visible = false;
+scene.add(P.ring);
 mode = 'title';
 loadLevel(0);
 P.frozen = true;
@@ -2820,8 +3856,10 @@ requestAnimationFrame(frame);
 
 // debug/test hook (harmless in production)
 window.__grok = {
-  W, P, run, cam, startLevel, LEVELS, input, keys, touchState, save,
+  W, P, run, cam, startLevel, LEVELS, input, keys, touchState, save, openMap, setEasy, goTitle,
   get mode() { return mode; },
+  get card() { return curCard; },
+  get mapSel() { return mapSel; },
   setManual(v) { manualTick = !!v; },
   // advance the simulation deterministically (used by automated tests)
   sim(n, mv, press) {
