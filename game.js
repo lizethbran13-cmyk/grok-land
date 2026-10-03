@@ -2466,6 +2466,7 @@ function onPlayerLand() {
     }
     P.squash = 0.55;
   } else {
+    if (P.state === 'launch') { P.vel.x *= 0.2; P.vel.z *= 0.2; } // boost pads: stick the landing
     if (P.state === 'longjump' || P.state === 'hurt' || P.state === 'launch') { P.state = 'normal'; P.stateT = 0; }
     if (impact > 10) { P.squash = 0.72; dust(P.pos.x, P.pos.y, P.pos.z, 5); }
   }
@@ -3592,6 +3593,8 @@ function addLaser(x, top, z, len, axis, onT, offT, phase) {
   if (axis === 'z') g.rotation.y = Math.PI / 2;
   g.position.set(x, top, z); W.root.add(g);
   const L = { onT, offT, T, ph: phase || 0, x, z, axis, len, on: false };
+  if (!W.lasers || W.lasers.root !== W.root) { W.lasers = []; W.lasers.root = W.root; }
+  W.lasers.push(L);
   W.things.push({ update() {
     const u = ((((W.time + L.ph) % T) + T) % T);
     const on = u < onT, warn = !on && u > T - 0.6;
@@ -4008,8 +4011,8 @@ function buildMoon() {
   // low gravity up to the goal
   addLowGrav(-1, -57, 6.5, 5.5, 0, 22, 0.42);
   addBox(0, 6, -56.5, 3, 3, 1, 'moon');
-  addBox(-4, 14, -58.5, 2.5, 2.5, 0.8, 'neon');
-  addItem('star', -4, 15.3, -58.5, { idx: 2 });
+  addBox(-4, 12, -58.5, 2.5, 2.5, 0.8, 'neon');
+  addItem('star', -4, 13.3, -58.5, { idx: 2 });
   addIsland(0, 9, -66, 10, 10, 'moon', 3, { bare: true });
   addAlien(2.5, 9, -64);
   addBox(0, 9.8, -68.5, 4, 4, 0.8, 'hull');
