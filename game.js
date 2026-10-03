@@ -3468,10 +3468,10 @@ function buildFactory() {
 // =====================================================================
 // 3.0 — new mechanics for worlds 7 & 8 (all either local to each player or driven by W.time, so co-op stays in sync)
 // =====================================================================
-STYLE.sand = { side: 0xe0b070, top: 0xffe3a6, cap: 0.35 };
+STYLE.sand = { side: 0xd9a35c, top: 0xf2cf84, cap: 0.35 };
 STYLE.coral = { side: 0xf0607a, top: 0xffa8b6, cap: 0.2 };
 STYLE.reef = { side: 0x24958e, top: 0x5fe0c8, cap: 0.22 };
-STYLE.tide = { side: 0xd0a060, top: 0xf6d698, cap: 0.2 };
+STYLE.tide = { side: 0xc89050, top: 0xeac27a, cap: 0.2 };
 STYLE.moon = { side: 0x7d7d96, top: 0xd6d6e6, cap: 0.3 };
 STYLE.hull = { side: 0x4f5878, top: 0xa6b2d8, cap: 0.16 };
 STYLE.neon = { side: 0x2a2060, top: 0x56f0ff, cap: 0.12, emissive: 0x10305a };
