@@ -38,7 +38,13 @@ for (let i = 0; i < NUM_LEVELS; i++) {
   if (!Array.isArray(save.stars[i])) save.stars[i] = [0, 0, 0];
   save.cleared[i] = save.cleared[i] || 0; save.bestCoins[i] = save.bestCoins[i] || 0; save.bestTime[i] = save.bestTime[i] || 0;
 }
-function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } }
+function persist() {
+  try {
+    // co-op: the host's EASY setting is borrowed for the session; never overwrite my own preference with it
+    const out = (NET.on && NET.myEasy !== undefined) ? Object.assign({}, save, { easy: NET.myEasy }) : save;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(out));
+  } catch (e) { /* ignore */ }
+}
 
 // =====================================================================
 // Audio — tiny WebAudio synth for SFX + chiptune music
@@ -211,6 +217,8 @@ const keys = Object.create(null);
 const ACTION_KEYS = new Set(['ShiftLeft', 'ShiftRight', 'KeyX', 'KeyF', 'KeyK']);
 const JUMP_KEYS = new Set(['Space', 'KeyJ', 'KeyZ']);
 const touchState = { jx: 0, jy: 0, jump: false, action: false, joyId: null };
+// Online co-op state. Filled in by the ONLINE CO-OP section near the end; completely inert in single-player.
+const NET = { on: false, host: true, applying: false, credit: null, menu: false, remotes: new Map(), gen: 0 };
 
 // =====================================================================
 // Renderer / scene
@@ -343,10 +351,10 @@ const TEX = {
 // =====================================================================
 // Character / object models
 // =====================================================================
-function buildHero() {
+function buildHero(color) {
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
-  const RED = 0xff3b3b, BLUE = 0x2f6fe8, SKIN = 0xffc996, WHITE = 0xffffff, BOOT = 0x6b3b1f, DARK = 0x1b1440;
+  const RED = color || 0xff3b3b, BLUE = 0x2f6fe8, SKIN = 0xffc996, WHITE = 0xffffff, BOOT = 0x6b3b1f, DARK = 0x1b1440;
   const torso = M(G.cyl8, BLUE, 0.4, 0.55, 0.36); torso.position.y = 0.72; body.add(torso);
   const belly = M(G.sphereLo, BLUE, 0.42, 0.3, 0.38); belly.position.y = 0.48; body.add(belly);
   const shirt = M(G.sphereLo, RED, 0.36, 0.22, 0.32); shirt.position.y = 0.98; body.add(shirt);
@@ -553,6 +561,7 @@ function clearWorld() {
   for (const r of rings) scene.remove(r.m);
   rings.length = 0;
   W.time = 0; W.colorState = 'red'; W.lavaY = null; W.lavaMesh = null; W.goalDone = false;
+  W.itemSeq = 0; W.enemySeq = 0; W.icicles = []; W.netSw = []; W.simon = null; W.candles = null; W.levers = null;
 }
 
 // =====================================================================
@@ -770,7 +779,7 @@ function addFalling(x, top, z, w, d) {
   const s = addBox(x, top, z, w, d, 0.6, 'fall', 'falling');
   const hx = s.x, hy = s.y, hz = s.z;
   s.state = 'idle'; s.t = 0; s.vy = 0;
-  s.onLand = () => { if (s.state === 'idle') { s.state = 'shake'; s.t = 0; Snd.S.bump(); } };
+  s.onLand = () => { if (s.state === 'idle') { s.state = 'shake'; s.t = 0; Snd.S.bump(); if (NET.on && !NET.applying) netEvent({ t: 'fall', k: W.solids.indexOf(s) }); } };
   W.things.push({ update(dt) {
     s.t += dt;
     if (s.state === 'shake') {
@@ -801,7 +810,7 @@ function addSpring(x, top, z) {
   g.scale.y = 0.62;
   g.position.set(x, top, z); W.root.add(g);
   const s = addSolid(x, top + 0.17, z, 0.66, 0.17, 0.66, 'spring', null);
-  s.anim = 0;
+  s.anim = 0; s.group = g;
   W.things.push({ update(dt) {
     s.anim = Math.max(0, s.anim - dt);
     const k = s.anim > 0 ? Math.sin((1 - s.anim / 0.4) * Math.PI * 3) * (s.anim / 0.4) : 0;
@@ -826,13 +835,17 @@ function addQBlock(x, cy, z, contents) {
   s.used = false; s.contents = contents || 'coins';
   s.onBump = () => {
     if (s.used) { Snd.S.bump(); return; }
+    // co-op: the host owns ? blocks (so coins are only counted once); a joiner asks the host to bump it
+    if (NET.on && !NET.host && !NET.applying) { netSend({ t: 'bump', k: W.solids.indexOf(s) }); Snd.S.bump(); return; }
     s.used = true;
+    const by = NET.credit;
+    if (NET.on && NET.host) netBroadcast({ t: 'qb', k: W.solids.indexOf(s), id: W.itemSeq });
     m.material = mat(0xa0673a);
     W.anim.push({ t: 0, f(dt, a) { a.t += dt; g.position.y = cy + Math.sin(Math.min(1, a.t / 0.2) * Math.PI) * 0.35; return a.t >= 0.2; } });
     if (s.contents === '1up') { Snd.S.bump(); addItem('oneup', x, cy + 1.2, z); }
     else {
       const n = s.contents === 'coins' ? 5 : 1;
-      for (let i = 0; i < n; i++) setTimeout(() => { collectCoin(x, cy + 1.2, z); popCoinFx(x, cy + 0.6, z); }, i * 110);
+      for (let i = 0; i < n; i++) setTimeout(() => { NET.credit = by; collectCoin(x, cy + 1.2, z); NET.credit = null; popCoinFx(x, cy + 0.6, z); }, i * 110);
     }
   };
   return s;
@@ -849,9 +862,10 @@ function addItem(type, x, y, z, extra) {
   else if (type === 'star') { mesh = buildStarMesh(1.25); r = 1.25; }
   else if (type === 'oneup') { mesh = buildOneUp(); r = 0.9; }
   else if (type === 'key') { mesh = buildKey(); r = 1.1; }
+  else if (type === 'tstar') { mesh = buildStarMesh(1.25, 0x3ff0ff); r = 1.25; }
   mesh.position.set(x, y, z);
   W.root.add(mesh);
-  const it = Object.assign({ type, mesh, x, y, z, r, alive: true, phase: Math.random() * TAU }, extra || {});
+  const it = Object.assign({ type, mesh, x, y, z, r, alive: true, phase: Math.random() * TAU, id: W.itemSeq++ }, extra || {});
   if (type === 'star' && save.stars[W.levelIdx][it.idx]) { mesh.children[0].material = mat(0x9fd8ff, { emissive: 0x1f4a7a, transparent: true, opacity: 0.8 }); }
   W.items.push(it);
   return it;
@@ -927,7 +941,7 @@ function addGoal(x, top, z, type) {
     const dx = P.pos.x - center.x, dz = P.pos.z - center.z, dy = P.pos.y + 0.75 - center.y;
     if (type === 'flag' ? (dx * dx + dz * dz < 1.3 && P.pos.y > top - 0.5 && P.pos.y < top + 7.5) : (dx * dx + dy * dy + dz * dz < 3.2)) {
       W.goalDone = true;
-      winLevel(g);
+      if (NET.on) netReachGoal(g); else winLevel(g);
     }
   } });
 }
@@ -992,17 +1006,20 @@ function addPressureSwitch(x, top, z) {
   shadowy(g, false, true);
   g.position.set(x, top, z); W.root.add(g);
   const sw = { x, y: top, z, pressed: false };
+  sw.press = (b) => {
+    if (sw.pressed || !b) return;
+    b.seated = true; b.seatX = x; b.seatZ = z; b.slide = null; sw.pressed = true;
+    plate.material = mat(0x59d65a, { emissive: 0x115511 }); mark.material = mat(0x2fa84a); plate.position.y = mark.position.y = 0.05;
+    Snd.S.press(); Snd.S.toggle(); burst(x, top + 0.4, z, 0x59d65a, 18, 5, 0.6);
+    if (NET.on && NET.host) netBroadcast({ t: 'press', k: W.netSw.indexOf(sw), b: W.pushBlocks.indexOf(b) });
+    if (sw.onPress) sw.onPress();
+  };
+  W.netSw.push(sw);
   W.things.push({ update() {
-    if (sw.pressed) return;
+    if (sw.pressed || (NET.on && !NET.host)) return; // co-op: the host decides when a crate seats
     for (const b of W.pushBlocks) {
       if (b.seated || b.slide) continue;
-      if (Math.abs(b.x - x) < 1.05 && Math.abs(b.z - z) < 1.05 && Math.abs(b.y - b.hy - top) < 0.3) {
-        b.seated = true; b.seatX = x; b.seatZ = z; sw.pressed = true;
-        plate.material = mat(0x59d65a, { emissive: 0x115511 }); mark.material = mat(0x2fa84a); plate.position.y = mark.position.y = 0.05;
-        Snd.S.press(); Snd.S.toggle(); burst(x, top + 0.4, z, 0x59d65a, 18, 5, 0.6);
-        if (sw.onPress) sw.onPress();
-        break;
-      }
+      if (Math.abs(b.x - x) < 1.05 && Math.abs(b.z - z) < 1.05 && Math.abs(b.y - b.hy - top) < 0.3) { sw.press(b); break; }
     }
   } });
   return sw;
@@ -1027,7 +1044,8 @@ function addResetPad(x, top, z, blocks) {
   } });
 }
 function onPad(x, top, z, half) {
-  return P.grounded && P.state !== 'dead' && Math.abs(P.pos.x - x) < half && Math.abs(P.pos.z - z) < half && Math.abs(P.pos.y - top) < 0.3;
+  const local = P.grounded && P.state !== 'dead' && Math.abs(P.pos.x - x) < half && Math.abs(P.pos.z - z) < half && Math.abs(P.pos.y - top) < 0.3;
+  return NET.on ? netPad(x, top, z, half, local) : local; // co-op: any player counts, and the host decides
 }
 function addGate(x, top, z, w, d, h) {
   const g = new THREE.Group();
@@ -1083,6 +1101,18 @@ function addLockedDoor(x, top, z, w, d, h, kind) {
   s.tryOpen = () => {
     if (s.opening) return;
     if (P.hasKey) {
+      if (NET.on && !NET.host) { if (W.time - s.lastMsg > 1) { s.lastMsg = W.time; netSend({ t: 'door', k: W.solids.indexOf(s) }); } return; }
+      if (NET.on) netBroadcast({ t: 'door', k: W.solids.indexOf(s) });
+      s.doOpen();
+    } else if (W.time - s.lastMsg > 3) {
+      s.lastMsg = W.time;
+      Snd.S.bump();
+      showToast('<b>LOCKED!</b> Find the golden KEY.', 2.5);
+    }
+  };
+  s.doOpen = () => {
+    if (s.opening) return;
+    {
       P.hasKey = false; updateHUD(true);
       s.opening = true;
       Snd.S.key(); Snd.S.door();
@@ -1096,10 +1126,6 @@ function addLockedDoor(x, top, z, w, d, h, kind) {
         if (k >= 1) { s.active = false; g.visible = false; return true; }
         return false;
       } });
-    } else if (W.time - s.lastMsg > 3) {
-      s.lastMsg = W.time;
-      Snd.S.bump();
-      showToast('<b>LOCKED!</b> Find the golden KEY.', 2.5);
     }
   };
   W.things.push({ update() {
@@ -1190,7 +1216,7 @@ function addSimon(cfg) {
   cglow.scale.setScalar(5); cglow.position.copy(crystal.position); W.root.add(cglow);
 
   const sim = { state: 'idle', seq: [], idx: 0, t: 0, lastStep: -1, startWas: false };
-  const rnd = mulberry((Date.now() & 0xffff) + 3);
+  const rnd = mulberry(NET.on ? NET.seed + 3 : (Date.now() & 0xffff) + 3); // co-op: same sequence on every screen
   do {
     sim.seq = [];
     while (sim.seq.length < (cfg.length || 4)) {
@@ -1199,6 +1225,15 @@ function addSimon(cfg) {
     }
   } while (new Set(sim.seq).size < 3);
   const setCrystal = (hex, k) => { crystal.material.emissive.setHex(hex); crystal.material.emissiveIntensity = k; cglow.material.color.setHex(hex); };
+  sim.solve = () => {
+    if (sim.state === 'done') return;
+    sim.state = 'done';
+    Snd.S.solve();
+    showToast('<b>PUZZLE SOLVED!</b> A rainbow bridge appears!', 3.5);
+    burst(cx, top + 4.2, cz, 0xffffff, 30, 8, 1);
+    if (NET.on && NET.host) netBroadcast({ t: 'solve', k: 'simon' });
+    if (cfg.onSolve) cfg.onSolve();
+  };
   W.things.push({ update(dt) {
     crystal.rotation.y += dt * 1.5;
     crystal.position.y = top + 4.2 + Math.sin(W.time * 2) * 0.15;
@@ -1248,11 +1283,8 @@ function addSimon(cfg) {
           p.flash = 0.45; Snd.S.pad(i); sim.idx++;
           burst(p.x, top + 0.4, p.z, SIMON_COLORS[i], 10, 4, 0.5);
           if (sim.idx >= sim.seq.length) {
-            sim.state = 'done';
-            Snd.S.solve();
-            showToast('<b>PUZZLE SOLVED!</b> A rainbow bridge appears!', 3.5);
-            burst(cx, top + 4.2, cz, 0xffffff, 30, 8, 1);
-            if (cfg.onSolve) cfg.onSolve();
+            if (NET.on && !NET.host) sim.state = 'wait'; // the host confirms the solve
+            else sim.solve();
           }
         } else {
           sim.state = 'idle';
@@ -1375,10 +1407,12 @@ function addIcicle(x, ceilY, z, groundY) {
   const y0 = ceilY - 0.75;
   g.position.set(x, y0, z); W.root.add(g);
   const ic = { state: 'idle', t: 0, y: y0, vy: 0 };
+  ic.trigger = () => { if (ic.state === 'idle') { ic.state = 'shake'; ic.t = 0; Snd.S.crack(); } };
+  W.icicles.push(ic);
   W.things.push({ update(dt) {
     ic.t += dt;
     if (ic.state === 'idle') {
-      if (P.state !== 'dead' && Math.abs(P.pos.x - x) < 1.5 && Math.abs(P.pos.z - z) < 1.5 && P.pos.y < ceilY - 1 && P.pos.y > groundY - 1.5) { ic.state = 'shake'; ic.t = 0; Snd.S.crack(); }
+      if (P.state !== 'dead' && Math.abs(P.pos.x - x) < 1.5 && Math.abs(P.pos.z - z) < 1.5 && P.pos.y < ceilY - 1 && P.pos.y > groundY - 1.5) { ic.trigger(); if (NET.on) netEvent({ t: 'ici', k: W.icicles.indexOf(ic) }); }
     } else if (ic.state === 'shake') {
       g.position.x = x + Math.sin(ic.t * 80) * 0.06;
       if (ic.t > 0.55) { ic.state = 'fall'; ic.t = 0; ic.vy = 0; g.position.x = x; }
@@ -1442,10 +1476,18 @@ function addCandles(cfg) {
     g.position.set(x - 0.45, top + 0.6, z - 0.45); W.root.add(g);
     st.candles.push({ x, z, top: top + 0.6, ped, flame, ring, t: 0 });
   }
+  // co-op joiner: the host lights candles; mirror its timers
+  st.netApply = (arr) => {
+    st.candles.forEach((c, i) => {
+      const v = (arr[i] || 0) / 10;
+      if (v > 0 && c.t <= 0 && !st.solved) { c.flame.visible = true; Snd.S.candle(); burst(c.x - 0.45, c.top + 1, c.z - 0.45, 0xffb030, 14, 4, 0.6); }
+      c.t = v; if (!st.solved) c.flame.visible = v > 0;
+    });
+  };
   W.things.push({ update(dt) {
     let lit = 0;
     for (const c of st.candles) {
-      if (!st.solved && P.state === 'poundLand' && P.stateT < 0.02 && P.ground === c.ped) {
+      if (!st.solved && ((P.state === 'poundLand' && P.stateT < 0.02 && P.ground === c.ped && !(NET.on && !NET.host)) || (NET.on && netPounded(c.ped)))) {
         const was = c.t > 0;
         c.t = dur;
         c.flame.visible = true; Snd.S.candle();
@@ -1579,6 +1621,16 @@ function addLeverPuzzle(cfg) {
   const paint = () => lamps.forEach((l, i) => { l.bulb.material = state[i] ? basic(0xffe14a) : basic(0x333344); l.glow.material.opacity = state[i] ? 0.9 : 0; });
   paint();
   const pz = { solved: false, state, presses: 0 };
+  pz.netSet = (arr, solved) => { // co-op joiner: host's lamp state wins
+    let ch = false;
+    for (let i = 0; i < state.length; i++) if (state[i] !== arr[i]) { state[i] = arr[i]; ch = true; }
+    if (ch) paint();
+    if (solved && !pz.solved) {
+      pz.solved = true; Snd.S.solve();
+      showToast('<b>ALL LIGHTS ON!</b> The factory gate rumbles open!', 3.5);
+      if (cfg.onSolve) cfg.onSolve();
+    }
+  };
   cfg.levers.forEach((lv, li) => {
     const [x, z, flips, label] = lv;
     const g = new THREE.Group();
@@ -1755,6 +1807,7 @@ function addThwomp(x, groundTop, z, restH) {
   g.position.set(x, upY, z); W.root.add(g);
   const s = addSolid(x, upY, z, w / 2, h / 2, w / 2, 'crusher', g);
   s.state = 'up'; s.t = 0; s.vy = 0;
+  s.trigger = () => { if (s.state === 'up') { s.state = 'fall'; s.vy = 0; s.t = 0; } };
   W.things.push({ update(dt) {
     s.t += dt;
     if (s.state === 'up') {
@@ -1762,6 +1815,7 @@ function addThwomp(x, groundTop, z, restH) {
       pR.position.x = 0.45 + clamp(P.pos.x - x, -1, 1) * 0.06;
       if (s.t > 0.4 && Math.abs(P.pos.x - x) < w / 2 + 0.6 && Math.abs(P.pos.z - z) < w / 2 + 0.6 && P.pos.y + P.h < s.y - s.hy + 0.2 && P.pos.y > groundTop - 3) {
         s.state = 'fall'; s.vy = 0; s.t = 0;
+        if (NET.on) netEvent({ t: 'thw', k: W.solids.indexOf(s) });
       }
     } else if (s.state === 'fall') {
       s.vy -= 80 * dt;
@@ -1788,7 +1842,7 @@ function addThwomp(x, groundTop, z, restH) {
 // ---------- enemies ----------
 function makeEnemy(type, x, y, z, model, opts) {
   const e = Object.assign({ type, pos: new V3(x, y, z), vy: 0, r: 0.55, h: 1.0, alive: true, dying: -1, model, dir: Math.random() * TAU, t: Math.random() * 3,
-    grounded: false, ground: null, stompable: true, spinnable: true, home: new V3(x, y, z), nextTurn: 2, alert: 0 }, opts || {});
+    grounded: false, ground: null, stompable: true, spinnable: true, home: new V3(x, y, z), nextTurn: 2, alert: 0, id: W.enemySeq++ }, opts || {});
   model.root.position.copy(e.pos);
   W.root.add(model.root);
   W.enemies.push(e);
@@ -1834,6 +1888,7 @@ function groundAhead(e, dx, dz) {
   return top > e.pos.y - 1.1;
 }
 function updateEnemies(dt) {
+  if (NET.on && !NET.host) { netPuppetEnemies(dt); return; } // co-op joiner: enemies are driven by the host
   for (let i = W.enemies.length - 1; i >= 0; i--) {
     const e = W.enemies[i];
     const m = e.model;
@@ -1845,9 +1900,10 @@ function updateEnemies(dt) {
       continue;
     }
     e.t += dt;
-    const dxp = P.pos.x - e.pos.x, dzp = P.pos.z - e.pos.z, dyp = P.pos.y - e.pos.y;
+    const TG = NET.on ? netTarget(e) : P; // co-op: chase / shoot at the nearest player
+    const dxp = TG.pos.x - e.pos.x, dzp = TG.pos.z - e.pos.z, dyp = TG.pos.y - e.pos.y;
     const distP = Math.hypot(dxp, dzp);
-    const playerOk = P.state !== 'dead' && P.state !== 'win' && !P.frozen;
+    const playerOk = TG.state !== 'dead' && TG.state !== 'win' && !TG.frozen;
     if (e.type === 'walker') {
       const chase = playerOk && distP < 8 && Math.abs(dyp) < 2.2 && e.pos.distanceTo(e.home) < 14;
       let speed;
@@ -1885,11 +1941,11 @@ function updateEnemies(dt) {
       m.body.position.y = Math.abs(Math.sin(e.t * 8)) * 0.1;
       m.body.rotation.z = Math.sin(e.t * 8) * 0.08;
     } else if (e.type === 'bee') {
-      const hx = P.pos.x - e.home.x, hz = P.pos.z - e.home.z;
+      const hx = TG.pos.x - e.home.x, hz = TG.pos.z - e.home.z;
       const chase = playerOk && Math.hypot(hx, hz) < 11 && distP < 13 && Math.abs(dyp) < 8;
-      const tx = chase ? P.pos.x : e.home.x + Math.sin(e.t * 0.8) * 2;
-      const ty = chase ? P.pos.y + 0.35 : e.home.y + Math.sin(e.t * 2) * 0.4;
-      const tz = chase ? P.pos.z : e.home.z + Math.cos(e.t * 0.8) * 2;
+      const tx = chase ? TG.pos.x : e.home.x + Math.sin(e.t * 0.8) * 2;
+      const ty = chase ? TG.pos.y + 0.35 : e.home.y + Math.sin(e.t * 2) * 0.4;
+      const tz = chase ? TG.pos.z : e.home.z + Math.cos(e.t * 0.8) * 2;
       const vx = tx - e.pos.x, vy = ty - e.pos.y, vz = tz - e.pos.z;
       const vd = Math.hypot(vx, vy, vz) || 1;
       const sp = Math.min(chase ? 3.4 : 3, vd * 3);
@@ -1912,7 +1968,7 @@ function updateEnemies(dt) {
           e.cool = 3.3;
           const a = m.head.rotation.y;
           const mx = e.pos.x + Math.sin(a) * 0.95, my = e.pos.y + 0.9, mz = e.pos.z + Math.cos(a) * 0.95;
-          const d = new V3(P.pos.x - mx, P.pos.y + 0.8 - my, P.pos.z - mz).normalize();
+          const d = new V3(TG.pos.x - mx, TG.pos.y + 0.8 - my, TG.pos.z - mz).normalize();
           fireProjectile(mx, my, mz, d, save.easy ? 6 : 7.2);
           m.head.position.z = -0.15;
         }
@@ -1931,7 +1987,7 @@ function updateEnemies(dt) {
         if (e.cool <= 0) {
           e.cool = save.easy ? 4.4 : 3.5;
           const mx = e.pos.x + Math.sin(e.dir) * 0.5, my = e.pos.y + 2.3, mz = e.pos.z + Math.cos(e.dir) * 0.5;
-          const tx = P.pos.x + P.vel.x * 0.3 - mx, tz = P.pos.z + P.vel.z * 0.3 - mz, ty = P.pos.y + 0.8 - my;
+          const tx = TG.pos.x + TG.vel.x * 0.3 - mx, tz = TG.pos.z + TG.vel.z * 0.3 - mz, ty = TG.pos.y + 0.8 - my;
           const hd = Math.hypot(tx, tz), T = clamp(hd / 8, 0.45, 2.0), GR = 14;
           const v = new V3(tx / T, (ty + 0.5 * GR * T * T) / T, tz / T);
           const sp = v.length();
@@ -1972,13 +2028,13 @@ function updateEnemies(dt) {
       }
       m.root.rotation.y = e.dir;
     } else if (e.type === 'ghost') {
-      const toG = Math.atan2(e.pos.x - P.pos.x, e.pos.z - P.pos.z);
-      const looking = Math.abs(angDiff(P.facing, toG)) < 1.25;
-      const hx = P.pos.x - e.home.x, hz = P.pos.z - e.home.z;
+      const toG = Math.atan2(e.pos.x - TG.pos.x, e.pos.z - TG.pos.z);
+      const looking = Math.abs(angDiff(TG.facing, toG)) < 1.25;
+      const hx = TG.pos.x - e.home.x, hz = TG.pos.z - e.home.z;
       const hunt = playerOk && Math.hypot(hx, hz) < 15 && distP < 16 && Math.abs(dyp) < 6;
       const shy = hunt && looking;
       let tx, ty, tz, sp;
-      if (hunt && !shy) { tx = P.pos.x; ty = P.pos.y + 0.25; tz = P.pos.z; sp = save.easy ? 1.8 : 2.4; if (!e.alert) { e.alert = 1; Snd.S.ghost(); } }
+      if (hunt && !shy) { tx = TG.pos.x; ty = TG.pos.y + 0.25; tz = TG.pos.z; sp = save.easy ? 1.8 : 2.4; if (!e.alert) { e.alert = 1; Snd.S.ghost(); } }
       else if (shy) { tx = e.pos.x; ty = e.pos.y; tz = e.pos.z; sp = 0; }
       else { e.alert = 0; tx = e.home.x + Math.sin(e.t * 0.6) * 1.5; ty = e.home.y + Math.sin(e.t * 1.7) * 0.3; tz = e.home.z + Math.cos(e.t * 0.6) * 1.5; sp = 1.6; }
       const vx = tx - e.pos.x, vy = ty - e.pos.y, vz = tz - e.pos.z, vd = Math.hypot(vx, vy, vz) || 1;
@@ -2052,9 +2108,14 @@ function enemyContact(e) {
 }
 function killEnemy(e, kind) {
   if (!e.alive) return;
+  let killer = null;
+  if (NET.on) {
+    killer = NET.applying ? NET.applyBy : (NET.credit || NET.pid);
+    if (!NET.applying) { if (NET.host) netBroadcast({ t: 'ekill', id: e.id, k: kind, by: killer }); else netSend({ t: 'kill', id: e.id, k: kind }); }
+  }
   e.alive = false;
   e.deathKind = kind;
-  run.enemies++;
+  if (!NET.on || killer === NET.pid) run.enemies++;
   if (kind === 'stomp') {
     e.model.root.scale.set(1.3, 0.25, 1.3); e.dying = 0.45;
     Snd.S.stomp(); burst(e.pos.x, e.pos.y + 0.4, e.pos.z, 0xffffff, 10, 5, 0.4);
@@ -2081,6 +2142,7 @@ function fireProjectile(x, y, z, dir, speed, opts) {
   }
   g.position.set(x, y, z); W.root.add(g);
   W.projectiles.push({ pos: g.position, vel: dir.clone().multiplyScalar(speed), life: 4.5, mesh: g, grav: (opts && opts.grav) || 0, color: snow ? 0xffffff : 0xff66dd });
+  if (NET.on && NET.host && !NET.applying) netBroadcast({ t: 'proj', p: [r3(x), r3(y), r3(z)], d: [r3(dir.x), r3(dir.y), r3(dir.z)], s: r3(speed), k: snow ? 1 : 0, gr: (opts && opts.grav) || 0 });
   if (snow) Snd.S.throwSnow(); else Snd.S.shoot();
 }
 function updateProjectiles(dt) {
@@ -2176,11 +2238,11 @@ function pMove(axis, amt) {
             if (!s.slide) {
               if (W.time - s.lastPush > 0.05) s.pushT = 0;
               s.lastPush = W.time; s.pushT += FIXED; P.pushing = true;
-              if (s.pushT > 0.12) { s.slide = { axis, dir: Math.sign(amt) }; s.pushT = 0; Snd.S.slide(); }
+              if (s.pushT > 0.12) { s.slide = { axis, dir: Math.sign(amt) }; s.pushT = 0; Snd.S.slide(); s.netPush = W.time; s.netSlideSent = false; }
             }
           } else {
             pushed = tryMoveBlock(s, axis, Math.sign(amt) * PUSH_SPEED * FIXED);
-            if (pushed) P.pushing = true;
+            if (pushed) { P.pushing = true; s.netPush = W.time; }
           }
         }
       }
@@ -2191,6 +2253,7 @@ function pMove(axis, amt) {
       else P.vel[axis] = 0;
     }
   }
+  if (axis === 'y' && amt < 0 && NET.on) netHeadLand(p, amt); // co-op: stand / bounce on your partner's head
 }
 function landOn(s) {
   if (s.kind === 'spring') {
@@ -2369,6 +2432,7 @@ function onPlayerLand() {
   const impact = -P.landVy;
   if (P.state === 'pound') {
     P.state = 'poundLand'; P.stateT = 0;
+    if (NET.on && !NET.host && P.ground) netSend({ t: 'pound', k: W.solids.indexOf(P.ground) });
     Snd.S.pound(); shakeAmt = Math.max(shakeAmt, 0.3);
     ringFx(P.pos.x, P.pos.y, P.pos.z, 0xffffff, 3.5); dust(P.pos.x, P.pos.y, P.pos.z, 14);
     for (const e of W.enemies) {
@@ -2420,10 +2484,11 @@ function fallOut() {
   P.health--; updateHUD(true);
   setTimeout(() => {
     if (mode !== 'playing') return;
-    if (P.health <= 0) loseLife(); else respawn(false, P.lastSafe);
+    if (P.health <= 0) loseLife(); else respawn(false, (NET.on && netPartnerSpot()) || P.lastSafe);
   }, 450);
 }
 function loseLife() {
+  if (NET.on) { respawn(true, netPartnerSpot()); return; } // co-op: no game over, pop back in next to your partner
   if (!save.easy) run.lives--;
   updateHUD(true);
   if (run.lives <= 0) { gameOver(); return; }
@@ -2448,6 +2513,7 @@ function fadeThen(fn) {
 
 // ---------- items ----------
 function collectCoin(x, y, z, quiet) {
+  if (NET.on) { netCoin(x, y, z); return; } // co-op: the host counts every coin once
   run.coins++; run.levelCoins++;
   Snd.S.coin(); void quiet;
   burst(x, y, z, 0xffe14a, 5, 3, 0.35, 4);
@@ -2467,6 +2533,7 @@ function updateItems(dt) {
     const dx = it.x - cx, dy = mm.position.y - cy, dz = it.z - cz;
     const rr = it.r + 0.45;
     if (dx * dx + dy * dy + dz * dz > rr * rr) continue;
+    if (NET.on) { netTouchItem(it, i); continue; }
     W.root.remove(mm);
     W.items.splice(i, 1);
     if (it.type === 'coin') collectCoin(it.x, mm.position.y, it.z);
@@ -2485,6 +2552,9 @@ function updateItems(dt) {
       P.hasKey = true; Snd.S.key(); burst(it.x, mm.position.y, it.z, 0xffd23f, 24, 6, 0.8);
       showToast('You got the <b>KEY</b>! Find the locked door.', 3);
       updateHUD(true);
+    } else if (it.type === 'tstar') { // co-op team star (only reachable here after the host left)
+      run.team[it.idx] = true; Snd.S.star(); burst(it.x, mm.position.y, it.z, 0x3ff0ff, 30, 8, 0.9);
+      showToast('<b>&#9733; TEAM STAR!</b>', 3);
     }
   }
   void dt;
@@ -2538,7 +2608,9 @@ function updateCamera(dt) {
 // =====================================================================
 // Player visuals
 // =====================================================================
-function animatePlayer(dt) {
+function animatePlayer(dt) { animateHero(P, dt); }
+// shared by the local hero and co-op partners (P is the hero state being drawn)
+function animateHero(P, dt) {
   const m = P.model;
   if (!m) return;
   m.root.position.copy(P.pos);
@@ -2558,7 +2630,7 @@ function animatePlayer(dt) {
     m.body.rotation.z = P.stateT * 6;
     m.armL.rotation.z = -2.6; m.armR.rotation.z = 2.6;
   } else if (st === 'win') {
-    m.root.rotation.y = cam.yaw;
+    m.root.rotation.y = P.remote ? P.facing : cam.yaw;
     m.armL.rotation.z = -2.7 + Math.sin(P.stateT * 12) * 0.2; m.armR.rotation.z = 2.7 - Math.sin(P.stateT * 12) * 0.2;
     if (!P.grounded) m.body.rotation.y = P.stateT * 10;
   } else if (st === 'spin') {
@@ -3381,6 +3453,7 @@ function loadLevel(i) {
   decoRand = mulberry(7 + i * 13);
   W.levelIdx = i;
   LEVELS[i].build();
+  if (NET.on) buildTeamZone(i);
   const s = LEVELS[i].start;
   W.checkpoint.pos.set(s[0], s[1], s[2]); W.checkpoint.yaw = 0;
   resetPlayerAt(W.checkpoint.pos, 0);
@@ -3398,7 +3471,7 @@ function updateHUD(force, bumpWhich) {
   }
   const hs = hudEls.hearts.children;
   for (let i = 0; i < hs.length; i++) hs[i].className = 'heart ' + (i < P.health ? 'on' : 'off');
-  const vals = { lives: save.easy ? '\u221e' : run.lives, coins: run.levelCoins || 0, stars: run.stars.filter(Boolean).length };
+  const vals = { lives: (save.easy || NET.on) ? '\u221e' : run.lives, coins: run.levelCoins || 0, stars: run.stars.filter(Boolean).length };
   for (const k in vals) {
     if (hudCache[k] !== vals[k] || force) {
       hudEls[k].textContent = vals[k];
@@ -3433,7 +3506,7 @@ function showBanner(sub, title) {
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => b.classList.remove('show'), 2600);
 }
-const CARDS = ['title-card', 'map-card', 'pause-card', 'complete-card', 'gameover-card'];
+const CARDS = ['title-card', 'map-card', 'pause-card', 'complete-card', 'gameover-card', 'mp-card'];
 let curCard = 'title-card';
 function showCard(id) {
   $('overlay').classList.add('show');
@@ -3520,6 +3593,7 @@ function renderLevelSelect() {
 // =====================================================================
 let curLevel = 0;
 function startLevel(i) {
+  if (NET.on && !NET.applying) { if (!NET.host) return; netAnnounceStart(i); } // co-op: only the host picks worlds
   Snd.init();
   curLevel = i;
   run.stars = [false, false, false]; run.levelCoins = 0; run.time = 0; run.enemies = 0;
@@ -3536,6 +3610,7 @@ function startLevel(i) {
   Snd.playMusic(i);
   updateHUD(true);
   $('toast').classList.remove('show');
+  if (NET.on) netLevelStarted();
 }
 function winLevel(goal) {
   P.state = 'win'; P.stateT = 0; P.vel.set(0, 0, 0); P.invuln = 0;
@@ -3552,6 +3627,7 @@ function winLevel(goal) {
   run.stars.forEach((s, i) => { if (s) save.stars[curLevel][i] = 1; });
   save.bestCoins[curLevel] = Math.max(save.bestCoins[curLevel] || 0, run.levelCoins);
   if (!save.bestTime[curLevel] || run.time < save.bestTime[curLevel]) save.bestTime[curLevel] = Math.round(run.time);
+  if (run.team && run.team.some(Boolean)) { save.team = save.team || {}; const tt = save.team[curLevel] || [0, 0]; run.team.forEach((v, k) => { if (v) tt[k] = 1; }); save.team[curLevel] = tt; }
   persist();
   setTimeout(showComplete, 2700);
 }
@@ -3567,10 +3643,12 @@ function showComplete() {
   $('complete-stars').innerHTML = run.stars.map((s, i) => '<span class="' + (s ? 'got' : 'no') + '" style="animation-delay:' + (0.2 + i * 0.25) + 's">&#9733;</span>').join('');
   const rows = [['Coins', run.levelCoins], ['Stars found', run.stars.filter(Boolean).length + ' / 3'], ['Enemies bopped', run.enemies], ['Time', fmtTime(run.time)], ['Lives left', save.easy ? '\u221e' : run.lives]];
   rows.push(['All-time stars', allStars + ' / ' + (LEVELS.length * 3)]);
+  if (NET.on) netCompleteRows(rows);
   $('complete-stats').innerHTML = rows.map((r) => '<div>' + r[0] + '</div><div>' + r[1] + '</div>').join('');
   $('next-btn').textContent = last ? 'WORLD MAP' : 'NEXT WORLD \u25b6';
   showCard('complete-card');
   renderLevelSelect();
+  netCompleteUI();
 }
 function gameOver() {
   mode = 'gameover';
@@ -3579,6 +3657,7 @@ function gameOver() {
   showCard('gameover-card');
 }
 function goTitle() {
+  if (NET.on && NET.host) netBroadcast({ t: 'menu' });
   Snd.stopMusic();
   mode = 'title';
   loadLevel(curLevel);
@@ -3591,6 +3670,7 @@ function goTitle() {
   if (Snd.isMuted() === false) Snd.playMusic(0);
 }
 function togglePause() {
+  if (NET.on) { netToggleMenu(); return; } // co-op can't pause the world: open the co-op menu instead
   if (mode === 'playing') {
     if (P.state === 'win') return;
     mode = 'paused';
@@ -3630,7 +3710,7 @@ onBtn('restart-btn', () => startLevel(curLevel));
 onBtn('pause-title-btn', goTitle);
 onBtn('next-btn', () => { if (curLevel === LEVELS.length - 1) { goTitle(); openMap(curLevel); } else startLevel(curLevel + 1); });
 onBtn('replay-btn', () => startLevel(curLevel));
-onBtn('complete-title-btn', goTitle);
+onBtn('complete-title-btn', () => { if (NET.on) netLobby(); else goTitle(); });
 onBtn('retry-btn', () => { run.lives = 5; run.coins = 0; startLevel(curLevel); });
 onBtn('go-title-btn', () => { run.lives = 5; goTitle(); });
 $('pause-btn').addEventListener('click', (e) => { Snd.init(); togglePause(); e.currentTarget.blur(); });
@@ -3667,8 +3747,8 @@ window.addEventListener('keyup', (e) => {
   keys[e.code] = false;
   if (GAME_KEYS.has(e.code) && mode === 'playing') e.preventDefault();
 });
-window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (mode === 'playing') togglePause(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'playing') togglePause(); });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (mode === 'playing' && !NET.on) togglePause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'playing' && !NET.on) togglePause(); });
 
 // mouse camera drag
 let mouseDrag = null;
@@ -3772,6 +3852,7 @@ function readInput() {
   input.mx = x; input.my = y;
   input.jump = !!(keys.Space || keys.KeyJ || keys.KeyZ || touchState.jump);
   input.action = !!(keys.ShiftLeft || keys.ShiftRight || keys.KeyX || keys.KeyF || keys.KeyK || touchState.action);
+  if (NET.menu) { input.mx = 0; input.my = 0; input.jump = false; input.action = false; input.jumpPressed = false; input.actionPressed = false; }
 }
 
 // =====================================================================
@@ -3781,6 +3862,7 @@ function worldTick(dt) {
   W.time += dt;
   if (mode === 'playing' && P.state !== 'win') run.time += dt;
   for (const s of W.solids) { s.dx = 0; s.dy = 0; s.dz = 0; }
+  if (NET.on) netPreTick(dt);
   for (let i = 0; i < W.things.length; i++) W.things[i].update(dt);
   updatePushBlocks(dt);
   for (let i = W.anim.length - 1; i >= 0; i--) { const a = W.anim[i]; if (a.f(dt, a)) W.anim.splice(i, 1); }
@@ -3800,6 +3882,7 @@ function worldTick(dt) {
   updateEnemies(dt);
   updateProjectiles(dt);
   updateItems(dt);
+  if (NET.on) netPostTick(dt);
 }
 let lastT = performance.now(), acc = 0, firstFrame = true, manualTick = false;
 function frame(now) {
@@ -3820,6 +3903,7 @@ function frame(now) {
   } else { input.jumpPressed = false; input.actionPressed = false; }
   updateFx(dt);
   animatePlayer(dt);
+  if (NET.on) netFrame(dt);
   updateCamera(dt);
   const t = now / 1000;
   for (const c of W.clouds) { if (c.speed) { c.m.position.x += c.speed * dt; if (c.m.position.x > 260) c.m.position.x = -260; } }
@@ -3832,6 +3916,832 @@ function frame(now) {
   sun.target.updateMatrixWorld();
   renderer.render(scene, camera);
   if (firstFrame) { firstFrame = false; const l = $('loading'); if (l) l.remove(); }
+}
+
+// =====================================================================
+// ONLINE CO-OP (2 players, up to 3). Only active with ?mp=host|join&code=... (sent by the Grok Arcade
+// lobby). Every player simulates their own hero and streams it ~15x a second; partners are drawn
+// ~120 ms behind and interpolated. The host is the referee for coins, stars, enemies, switches and
+// crates so nothing is counted twice. Without mp params nothing here runs.
+// =====================================================================
+const NET_DT = 1 / 15, INTERP_MS = 120, HEAD_BOUNCE = 18.5;
+const NET_LOG = { took: 1, ekill: 1, press: 1, door: 1, solve: 1, qb: 1 };
+let room = null, netBadge = null;
+function r2(v) { return Math.round(v * 100) / 100; }
+function r3(v) { return Math.round(v * 1000) / 1000; }
+function colorNum(c) { const n = parseInt(String(c || '').replace('#', ''), 16); return isFinite(n) ? n : 0xff3b3b; }
+function netEsc(s) { return window.GrokNet ? window.GrokNet.esc(s) : String(s); }
+// client -> host only
+function netSend(d) { if (!room || NET.host) return; d.g = NET.gen; room.send(d); }
+// host -> everyone else (remembered so late joiners can catch up)
+function netBroadcast(d) {
+  if (!room || !NET.host) return;
+  d.g = NET.gen;
+  if (NET_LOG[d.t]) NET.log.push(d);
+  room.broadcast(d);
+}
+// anyone -> everyone else (a joiner's event is relayed by the host)
+function netEvent(d) { if (!room || NET.applying) return; d.g = NET.gen; room.broadcast(d); }
+function netInfo(pid) {
+  const l = room ? room.players() : [];
+  for (const p of l) if (p.pid === pid) return p;
+  return { pid, name: 'Partner', color: '#3ff0ff', slot: 9 };
+}
+function netName(pid) { return pid === NET.pid ? 'You' : netInfo(pid).name; }
+let noticeT = null;
+function netNotice(html, secs) { // co-op status line (joins, leaves, reconnects) that toasts can't overwrite
+  const el = $('mp-notice');
+  el.innerHTML = html; el.classList.add('show');
+  clearTimeout(noticeT);
+  noticeT = setTimeout(() => el.classList.remove('show'), (secs || 4) * 1000);
+}
+function netAlone() { return !NET.on || !room || room.count() < 2; }
+function netHostName() { const l = room ? room.players() : []; for (const p of l) if (p.host) return p.name; return 'the host'; }
+
+// ---------- partner heroes ----------
+function makeNameTag(name, color) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 72;
+  const g = c.getContext('2d');
+  g.font = 'bold 34px "Trebuchet MS", Arial, sans-serif';
+  const w = Math.min(248, g.measureText(name).width + 40), x0 = (256 - w) / 2, y0 = 8, h = 56, rr = 22;
+  g.beginPath();
+  g.moveTo(x0 + rr, y0); g.lineTo(x0 + w - rr, y0); g.arcTo(x0 + w, y0, x0 + w, y0 + rr, rr); g.lineTo(x0 + w, y0 + h - rr);
+  g.arcTo(x0 + w, y0 + h, x0 + w - rr, y0 + h, rr); g.lineTo(x0 + rr, y0 + h); g.arcTo(x0, y0 + h, x0, y0 + h - rr, rr); g.lineTo(x0, y0 + rr); g.arcTo(x0, y0, x0 + rr, y0, rr);
+  g.closePath();
+  g.fillStyle = 'rgba(20,12,48,0.85)'; g.fill();
+  g.lineWidth = 6; g.strokeStyle = color; g.stroke();
+  g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(name, 128, 37, 220);
+  const tex = new THREE.CanvasTexture(c);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  sp.scale.set(2.3, 0.65, 1); sp.renderOrder = 999;
+  return sp;
+}
+function netRemote(pid) {
+  let R = NET.remotes.get(pid);
+  if (R) return R;
+  const info = netInfo(pid);
+  R = {
+    pid, name: info.name, color: info.color, snaps: [], last: null, ls: new V3(),
+    view: { remote: true, pos: new V3(0, -999, 0), vel: new V3(), facing: 0, state: 'normal', stateT: 0, grounded: true, flip: 0, squash: 1, animT: 0, invuln: 0, frozen: false, pushing: false, model: null, blob: null, ring: null },
+    head: { kind: 'head', active: false, x: 0, y: -999, z: 0, hx: 0.42, hy: 0.06, hz: 0.42, dx: 0, dy: 0, dz: 0 },
+    tgt: { pos: new V3(), vel: new V3(), facing: 0, state: 'dead', frozen: true },
+  };
+  R.view.model = buildHero(colorNum(R.color)); scene.add(R.view.model.root);
+  R.view.blob = new THREE.Mesh(G.circle, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));
+  R.view.blob.renderOrder = 2; scene.add(R.view.blob);
+  R.tag = makeNameTag(R.name, R.color); scene.add(R.tag);
+  R.arrow = document.createElement('div'); R.arrow.className = 'mp-arrow hidden';
+  R.arrow.innerHTML = '<i></i><span></span>'; R.arrow.style.setProperty('--c', R.color);
+  $('mp-arrows').appendChild(R.arrow);
+  NET.remotes.set(pid, R);
+  return R;
+}
+function netDropRemote(pid) {
+  const R = NET.remotes.get(pid);
+  if (!R) return;
+  scene.remove(R.view.model.root); scene.remove(R.view.blob); scene.remove(R.tag);
+  R.arrow.remove();
+  if (P.ground === R.head) { P.ground = null; P.grounded = false; }
+  NET.remotes.delete(pid);
+}
+function netOnPlayer(d, from) {
+  if (from === NET.pid || !NET.inLevel) return;
+  const R = netRemote(from);
+  if (!R.last || R.last.g !== d.g) R.snaps.length = 0;
+  if (R.last && R.last.dj !== d.dj && d.g === NET.gen) R.view.flip = 1;
+  R.last = d;
+  R.snaps.push({ t: performance.now(), x: d.x, y: d.y, z: d.z, f: d.f });
+  if (R.snaps.length > 30) R.snaps.shift();
+  R.tgt.pos.set(d.x, d.y, d.z); R.tgt.vel.set(d.vx, d.vy, d.vz); R.tgt.facing = d.f;
+  R.tgt.state = d.g === NET.gen ? d.s : 'dead'; R.tgt.frozen = !!d.fr || d.g !== NET.gen;
+  if (d.ls) R.ls.set(d.ls[0], d.ls[1], d.ls[2]);
+}
+const _ns = { x: 0, y: 0, z: 0, f: 0 };
+function netSample(snaps, t) {
+  const n = snaps.length;
+  if (!n) return null;
+  const last = snaps[n - 1];
+  if (t >= last.t) return last;
+  let i = n - 1;
+  while (i > 0 && snaps[i - 1].t > t) i--;
+  if (i === 0) return snaps[0];
+  const a = snaps[i - 1], b = snaps[i];
+  const k = clamp((t - a.t) / Math.max(1, b.t - a.t), 0, 1);
+  if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + Math.abs(a.z - b.z) > 6) return k < 0.5 ? a : b; // teleport: don't smear
+  _ns.x = lerp(a.x, b.x, k); _ns.y = lerp(a.y, b.y, k); _ns.z = lerp(a.z, b.z, k); _ns.f = angleLerp(a.f, b.f, k);
+  return _ns;
+}
+function netRemoteLive(R) { const L = R.last; return !!L && L.g === NET.gen && NET.inLevel; }
+// nearest player an enemy should care about (host only)
+function netTarget(e) {
+  let best = P, bd = Infinity;
+  if (P.state !== 'dead' && P.state !== 'win' && !P.frozen) bd = e.pos.distanceToSquared(P.pos);
+  for (const R of NET.remotes.values()) {
+    const T = R.tgt;
+    if (!netRemoteLive(R) || T.state === 'dead' || T.state === 'win' || T.frozen) continue;
+    const d = e.pos.distanceToSquared(T.pos);
+    if (d < bd) { bd = d; best = T; }
+  }
+  return best;
+}
+// where to pop back in: next to a partner who is safely on the ground
+function netPartnerSpot() {
+  for (const R of NET.remotes.values()) {
+    const L = R.last;
+    if (!netRemoteLive(R) || L.fr || L.s === 'dead' || L.s === 'win') continue;
+    const bases = [];
+    if (L.gr) bases.push(new V3(L.x, L.y, L.z)); // right next to where they stand now
+    bases.push(R.ls);                            // else their last safe ground
+    for (const b of bases) {
+      for (const o of [[1.1, 0], [-1.1, 0], [0, 1.1], [0, -1.1], [0, 0]]) {
+        const x = b.x + o[0], z = b.z + o[1];
+        const gt = groundTopAt(x, z, b.y + 0.6);
+        if (Math.abs(gt - b.y) < 0.35 && boxFree(x, gt + P.h / 2 + 0.06, z, P.r, P.h / 2, P.r, null)) return new V3(x, gt, z);
+      }
+    }
+    const b = R.ls;
+    return b.clone();
+  }
+  return null;
+}
+// standing / bouncing on a partner's head (called from pMove after a downward move)
+function netHeadLand(p, amt) {
+  if (P.grounded || P.state === 'dead') return;
+  const prevY = p.y - amt;
+  for (const R of NET.remotes.values()) {
+    const h = R.head;
+    if (!h.active) continue;
+    const top = h.y + h.hy;
+    if (Math.abs(p.x - h.x) > P.r + h.hx || Math.abs(p.z - h.z) > P.r + h.hz) continue;
+    if (prevY < top - 0.05 || p.y > top) continue;
+    p.y = top;
+    P.landVy = Math.min(P.landVy, P.vel.y);
+    if (input.jump && P.state !== 'pound') {
+      P.bounceV = HEAD_BOUNCE; // big boost: reach ledges nobody can reach alone
+      netEvent({ t: 'bop', to: R.pid });
+      R.view.squash = 0.6;
+    } else {
+      if (P.vel.y < 0) P.vel.y = 0;
+      P.grounded = true; P.ground = h;
+      if (P.state === 'pound') { P.state = 'normal'; P.stateT = 0; }
+    }
+    return;
+  }
+}
+
+// ---------- per-tick hooks ----------
+function netPreTick(dt) {
+  for (const R of NET.remotes.values()) {
+    const h = R.head, v = R.view, L = R.last;
+    const ok = netRemoteLive(R) && !L.fr && L.s !== 'dead' && v.pos.y > -900;
+    if (!ok) { h.active = false; h.dx = h.dy = h.dz = 0; continue; }
+    const nx = v.pos.x, ny = v.pos.y + P.h - h.hy, nz = v.pos.z;
+    if (h.active && Math.abs(nx - h.x) + Math.abs(ny - h.y) + Math.abs(nz - h.z) < 3) { h.dx = nx - h.x; h.dy = ny - h.y; h.dz = nz - h.z; }
+    else { h.dx = h.dy = h.dz = 0; }
+    h.x = nx; h.y = ny; h.z = nz; h.active = true;
+  }
+  if (!NET.host) { // joiner: ease crates toward the host's positions (unless I'm pushing that crate)
+    for (const b of W.pushBlocks) {
+      if (!b.nt || b.slide || W.time - (b.netPush === undefined ? -9 : b.netPush) < 0.6) continue;
+      const dx = b.nt[0] - b.x, dy = b.nt[1] - b.y, dz = b.nt[2] - b.z;
+      if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) < 0.003) continue;
+      if (dx * dx + dy * dy + dz * dz > 9) setSolidPos(b, b.nt[0], b.nt[1], b.nt[2]);
+      else { const k = damp(14, dt); setSolidPos(b, b.x + dx * k, b.y + dy * k, b.z + dz * k); }
+    }
+  }
+}
+function netPostTick() {
+  if (P.flip > NET.prevFlip + 0.5) NET.dj++;
+  NET.prevFlip = P.flip;
+  if (NET.host) NET.pounds.clear();
+}
+function netPad(x, top, z, half, local) {
+  const key = x + '|' + top + '|' + z;
+  if (!NET.host) return NET.padsHost.has(key);
+  let on = local;
+  if (!on) {
+    for (const R of NET.remotes.values()) {
+      const L = R.last;
+      if (netRemoteLive(R) && L.gr && L.s !== 'dead' && !L.fr && Math.abs(L.x - x) < half && Math.abs(L.z - z) < half && Math.abs(L.y - top) < 0.3) { on = true; break; }
+    }
+  }
+  if (on) NET.padsAcc.add(key);
+  return on;
+}
+function netPounded(ped) { return NET.host && NET.pounds.has(W.solids.indexOf(ped)); }
+
+// ---------- per-frame: draw partners, arrows, send state ----------
+const _proj = new V3();
+function netFrame(dt) {
+  const now = performance.now(), rt = now - INTERP_MS;
+  const showWorld = NET.inLevel && (mode === 'playing' || mode === 'complete');
+  for (const R of NET.remotes.values()) {
+    const v = R.view, L = R.last;
+    const vis = showWorld && netRemoteLive(R);
+    if (!vis) { v.model.root.visible = false; v.blob.visible = false; R.tag.visible = false; R.arrow.classList.add('hidden'); continue; }
+    const s = netSample(R.snaps, rt);
+    if (s) { v.pos.set(s.x, s.y, s.z); v.facing = s.f; }
+    v.vel.set(L.vx, L.vy, L.vz); v.grounded = !!L.gr; v.frozen = !!L.fr; v.pushing = !!L.pu;
+    v.invuln = L.iv ? 0.02 + ((now / 1000) % 1) : 0;
+    if (L.s !== v.state) { v.state = L.s; v.stateT = 0; } else v.stateT += dt;
+    animateHero(v, dt);
+    R.tag.visible = !v.frozen && v.state !== 'dead';
+    R.tag.position.set(v.pos.x, v.pos.y + 2.4, v.pos.z);
+    netArrow(R, v);
+  }
+  NET.sendT += dt;
+  if (NET.sendT >= NET_DT) {
+    NET.sendT = Math.min(NET.sendT - NET_DT, NET_DT);
+    netSendState();
+    if (NET.host) netSendWorld();
+  }
+}
+function netArrow(R, v) {
+  const el = R.arrow;
+  if (mode !== 'playing' || v.frozen) { el.classList.add('hidden'); return; }
+  _proj.set(v.pos.x, v.pos.y + 1, v.pos.z).project(camera);
+  const behind = _proj.z > 1;
+  let x = _proj.x, y = _proj.y;
+  if (!behind && Math.abs(x) < 0.92 && Math.abs(y) < 0.88) { el.classList.add('hidden'); return; }
+  if (behind) { x = -x; y = -y; if (Math.abs(x) < 0.01 && Math.abs(y) < 0.01) y = -1; }
+  const m = Math.max(Math.abs(x) / 0.86, Math.abs(y) / 0.8, 0.0001);
+  x /= m; y /= m;
+  const W2 = innerWidth / 2, H2 = innerHeight / 2;
+  const px = W2 + x * W2, py = H2 - y * H2;
+  const ang = Math.atan2(-y, x);
+  el.classList.remove('hidden');
+  el.style.transform = 'translate(' + Math.round(px) + 'px,' + Math.round(py) + 'px)';
+  el.firstChild.style.transform = 'translate(-50%,-50%) rotate(' + ang.toFixed(2) + 'rad)';
+  const dist = Math.round(Math.hypot(v.pos.x - P.pos.x, v.pos.y - P.pos.y, v.pos.z - P.pos.z));
+  const txt = R.name + ' ' + dist + 'm';
+  if (el.lastChild.textContent !== txt) el.lastChild.textContent = txt;
+  // keep the name label fully on screen (the arrow sits right at the edge)
+  const lw = el.lastChild.offsetWidth || 80;
+  el.lastChild.style.transform = 'none';
+  el.lastChild.style.left = Math.round(Math.max(6, Math.min(innerWidth - lw - 6, px - lw / 2)) - px) + 'px';
+  el.lastChild.style.top = (py > innerHeight - 60 ? -48 : 22) + 'px';
+}
+function netSendState() {
+  if (!room || !NET.inLevel) return;
+  if (mode !== 'playing' && mode !== 'complete') return;
+  room.broadcast({ t: 'p', g: NET.gen, x: r2(P.pos.x), y: r2(P.pos.y), z: r2(P.pos.z), f: r2(P.facing), s: P.state,
+    vx: r2(P.vel.x), vy: r2(P.vel.y), vz: r2(P.vel.z), gr: P.grounded ? 1 : 0, iv: P.invuln > 0 ? 1 : 0, fr: P.frozen ? 1 : 0,
+    pu: P.pushing ? 1 : 0, dj: NET.dj, ls: [r2(P.lastSafe.x), r2(P.lastSafe.y), r2(P.lastSafe.z)] });
+  if (!NET.host) {
+    W.pushBlocks.forEach((b, i) => {
+      if (b.seated || b.netPush === undefined || W.time - b.netPush > 0.2) return;
+      if (b.slide && !b.netSlideSent) { b.netSlideSent = true; netSend({ t: 'blk', i, x: r3(b.x), z: r3(b.z), sl: [b.slide.axis, b.slide.dir] }); }
+      else if (!b.slide) netSend({ t: 'blk', i, x: r3(b.x), z: r3(b.z) });
+    });
+  }
+}
+const PMODES = ['walk', 'aim', 'slide', 'recover'];
+function enemySnap(e) {
+  const m = e.model;
+  let a = 0, b = 0;
+  if (e.type === 'walker') a = e.alert ? 1 : 0;
+  else if (e.type === 'turret') { a = r2(m.head.rotation.y); b = m.head.scale.x > 1.05 ? 1 : 0; }
+  else if (e.type === 'snowman') a = m.armR.rotation.x < -1 ? 1 : 0;
+  else if (e.type === 'penguin') a = Math.max(0, PMODES.indexOf(e.pmode));
+  else if (e.type === 'ghost') { const al = e.alpha === undefined ? 0.88 : e.alpha; a = Math.round(al * 100); b = (al < 0.6 ? 1 : 0) | (m.tongue.visible ? 2 : 0); }
+  else if (e.type === 'robot') { const cyc = (e.t + e.ph) % 4.6; a = cyc > 3.2 ? 1 : cyc > 2.5 ? 2 : 0; }
+  return [e.id, r2(e.pos.x), r2(e.pos.y), r2(e.pos.z), r2(e.dir), a, b];
+}
+function netSendWorld() {
+  if (!room || !NET.inLevel || mode !== 'playing' || room.count() < 2) { NET.padsAcc.clear(); return; }
+  const d = { t: 'w', tm: r3(W.time), pads: Array.from(NET.padsAcc), cs: W.colorState, e: [], bl: [] };
+  NET.padsAcc.clear();
+  for (const e of W.enemies) if (e.alive) d.e.push(enemySnap(e));
+  for (const b of W.pushBlocks) d.bl.push([r3(b.x), r3(b.y), r3(b.z)]);
+  if (W.candles) { d.cd = W.candles.candles.map((c) => Math.max(0, Math.ceil(c.t * 10))); d.cds = W.candles.solved ? 1 : 0; }
+  if (W.levers) d.lv = [W.levers.state.slice(), W.levers.solved ? 1 : 0];
+  if (W.simon) d.sm = W.simon.state === 'done' ? 1 : 0;
+  d.g = NET.gen;
+  room.broadcast(d);
+}
+function netOnWorld(d) {
+  const drift = d.tm + 0.04 - W.time;
+  if (Math.abs(drift) > 0.4) W.time = d.tm; else W.time += drift * 0.08;
+  NET.padsHost = new Set(d.pads);
+  if (d.cs !== W.colorState) { if (++NET.csBad >= 4) { toggleColors(); NET.csBad = 0; } } else NET.csBad = 0;
+  const now = performance.now(), seen = new Set();
+  for (const s of d.e) {
+    const e = NET.enemyMap.get(s[0]);
+    if (!e || !e.alive) continue;
+    seen.add(e);
+    if (!e.snaps) e.snaps = [];
+    e.snaps.push({ t: now, x: s[1], y: s[2], z: s[3], f: s[4] });
+    if (e.snaps.length > 20) e.snaps.shift();
+    e.na = s[5]; e.nb = s[6]; e.miss = 0;
+  }
+  for (const e of W.enemies) {
+    if (e.alive && !seen.has(e) && ++e.miss >= 3) { e.alive = false; e.dying = 0; if (e.blob) e.blob.visible = false; }
+  }
+  d.bl.forEach((v, i) => { const b = W.pushBlocks[i]; if (b) b.nt = v; });
+  if (d.cd && W.candles) W.candles.netApply(d.cd);
+  if (d.lv && W.levers) W.levers.netSet(d.lv[0], d.lv[1]);
+  if (d.sm && W.simon && W.simon.state !== 'done') W.simon.solve();
+}
+// joiner: host-driven enemies, animated from the snapshot flags
+function netPuppetEnemies(dt) {
+  const rt = performance.now() - INTERP_MS;
+  for (let i = W.enemies.length - 1; i >= 0; i--) {
+    const e = W.enemies[i], m = e.model;
+    if (!e.alive) {
+      e.dying -= dt;
+      if (e.deathKind === 'spin') { e.vy -= 30 * dt; e.pos.y += e.vy * dt; e.pos.x += e.kx * dt; e.pos.z += e.kz * dt; m.root.rotation.x += dt * 14; }
+      m.root.position.copy(e.pos);
+      if (!e.deathKind) m.root.visible = false;
+      if (e.dying <= 0) { W.root.remove(m.root); if (e.blob) W.root.remove(e.blob); W.enemies.splice(i, 1); }
+      continue;
+    }
+    e.t += dt;
+    const s = e.snaps ? netSample(e.snaps, rt) : null;
+    if (s) { e.pos.set(s.x, s.y, s.z); e.dir = s.f; }
+    const a = e.na || 0, b = e.nb || 0;
+    m.root.position.copy(e.pos);
+    if (e.type !== 'turret') m.root.rotation.y = e.dir;
+    if (e.type === 'walker') {
+      const sp = a ? 16 : 9;
+      m.body.rotation.z = Math.sin(e.t * sp) * 0.12;
+      m.fL.position.z = 0.05 + Math.sin(e.t * sp) * 0.15; m.fR.position.z = 0.05 - Math.sin(e.t * sp) * 0.15;
+    } else if (e.type === 'spiky') {
+      m.body.position.y = Math.abs(Math.sin(e.t * 8)) * 0.1; m.body.rotation.z = Math.sin(e.t * 8) * 0.08;
+    } else if (e.type === 'bee' || e.type === 'ghost') {
+      if (e.type === 'bee') { m.wL.rotation.z = Math.sin(e.t * 50) * 0.6; m.wR.rotation.z = -Math.sin(e.t * 50) * 0.6; m.body.position.y = Math.sin(e.t * 5) * 0.08; }
+      else {
+        const shy = b & 1;
+        e.alpha = a / 100; m.mat.opacity = e.alpha;
+        m.armL.position.set(shy ? -0.2 : -0.62, shy ? 0.95 : 0.75 + Math.sin(e.t * 6) * 0.08, shy ? 0.55 : 0.15);
+        m.armR.position.set(shy ? 0.2 : 0.62, shy ? 0.95 : 0.75 - Math.sin(e.t * 6) * 0.08, shy ? 0.55 : 0.15);
+        m.tongue.visible = !!(b & 2);
+        m.body.position.y = Math.sin(e.t * 2.2) * 0.12; m.body.rotation.z = Math.sin(e.t * 1.4) * 0.1;
+      }
+      const gt = groundTopAt(e.pos.x, e.pos.z, e.pos.y);
+      if (gt > -Infinity) { e.blob.visible = true; e.blob.position.set(e.pos.x, gt + 0.03, e.pos.z); } else e.blob.visible = false;
+    } else if (e.type === 'turret') {
+      m.head.rotation.y = angleLerp(m.head.rotation.y, a, Math.min(1, dt * 10));
+      m.head.scale.setScalar(b ? 1.1 : 1);
+      m.eye.scale.setScalar(b ? 0.16 + Math.sin(e.t * 40) * 0.05 : 0.12);
+      m.head.position.z = lerp(m.head.position.z, 0, dt * 6);
+    } else if (e.type === 'snowman') {
+      m.body.rotation.z = Math.sin(e.t * 2) * 0.04;
+      m.armR.rotation.x = a ? -2.4 : lerp(m.armR.rotation.x, 0, dt * 4);
+    } else if (e.type === 'penguin') {
+      if (a === 0) { m.body.rotation.set(0, 0, Math.sin(e.t * 10) * 0.15); m.body.position.y = 0; m.fL.rotation.z = 0.4 + Math.sin(e.t * 10) * 0.3; m.fR.rotation.z = -0.4 - Math.sin(e.t * 10) * 0.3; }
+      else if (a === 1) m.body.rotation.set(-0.3, 0, 0);
+      else if (a === 2) { m.body.rotation.set(1.35, 0, 0); m.body.position.y = -0.25; m.fL.rotation.z = 1.4; m.fR.rotation.z = -1.4; }
+      else { m.body.rotation.set(lerp(m.body.rotation.x, 0, dt * 6), 0, Math.sin(e.t * 20) * 0.1); m.body.position.y = 0; }
+    } else if (e.type === 'robot') {
+      const sparking = a === 1, tele = a === 2;
+      if (sparking && !e.sparking) Snd.S.spark();
+      e.sparking = sparking;
+      e.stompable = e.spinnable = !sparking;
+      if (!sparking) { m.wheelL.rotation.x += dt * 8; m.wheelR.rotation.x += dt * 8; }
+      m.bulb.material.color.setHex(sparking ? 0x55ddff : tele ? (Math.floor(e.t * 12) % 2 ? 0xffffff : 0xff3355) : 0xff3355);
+      m.spark.material.opacity = sparking ? 0.55 + Math.random() * 0.45 : 0;
+      m.body.position.y = sparking ? (Math.random() - 0.5) * 0.06 : 0;
+    }
+    enemyContact(e);
+  }
+}
+
+// ---------- items / coins ----------
+function netItem(id) { for (const it of W.items) if (it.id === id) return it; return null; }
+function netTouchItem(it) {
+  if (it.netPending !== undefined && W.time - it.netPending < 1.5) return;
+  if (NET.host) { netTake(it, NET.pid); return; }
+  it.netPending = W.time; it.mesh.visible = false; // predicted pickup; the host confirms
+  if (it.type === 'coin') { Snd.S.coin(); burst(it.x, it.mesh.position.y, it.z, 0xffe14a, 5, 3, 0.35, 4); }
+  netSend({ t: 'take', id: it.id });
+}
+function netTake(it, by) { // host
+  const idx = W.items.indexOf(it);
+  if (idx < 0) return;
+  W.items.splice(idx, 1); W.root.remove(it.mesh);
+  let n = 0;
+  if (it.type === 'coin') { NET.coins[by] = (NET.coins[by] || 0) + 1; n = NET.coins[by]; }
+  netBroadcast({ t: 'took', id: it.id, by, n });
+  netApplyTook(it, by, n);
+}
+function netApplyTook(it, by, n) {
+  const me = by === NET.pid, y = it.mesh.position.y, predicted = it.netPending !== undefined;
+  if (it.type === 'coin') { if (me) netMyCoin(n, it.x, y, it.z, predicted); else burst(it.x, y, it.z, 0xffe14a, 5, 3, 0.35, 4); }
+  else if (it.type === 'star') {
+    run.stars[it.idx] = true;
+    const c = run.stars.filter(Boolean).length;
+    Snd.S.star(); burst(it.x, y, it.z, 0xffe14a, 30, 8, 0.9); ringFx(it.x, y - 0.5, it.z, 0xffe14a, 4);
+    showToast('<b>&#9733; GROK STAR!</b> ' + (me ? '' : netEsc(netName(by)) + ' found it! ') + c + ' / 3 found', 3);
+    updateHUD(false, 'stars');
+  } else if (it.type === 'tstar') {
+    run.team[it.idx] = true;
+    const c = run.team.filter(Boolean).length;
+    Snd.S.star(); burst(it.x, y, it.z, 0x3ff0ff, 30, 8, 0.9); ringFx(it.x, y - 0.5, it.z, 0x3ff0ff, 4);
+    showToast('<b>&#9733; TEAM STAR!</b> Teamwork! ' + c + ' / 2 team stars', 3.5);
+  } else if (it.type === 'oneup') {
+    if (me) { P.health = P.maxHealth; heartPop(); showToast('<b>1-UP!</b> Full health', 2); updateHUD(true); }
+    burst(it.x, y, it.z, 0x3fd34a, 16, 5, 0.6);
+  } else if (it.type === 'key') {
+    P.hasKey = true; Snd.S.key(); burst(it.x, y, it.z, 0xffd23f, 24, 6, 0.8);
+    showToast((me ? 'You got' : netEsc(netName(by)) + ' got') + ' the <b>KEY</b>! Find the locked door.', 3);
+    updateHUD(true);
+  }
+}
+function netMyCoin(n, x, y, z, quiet) {
+  run.coins++; run.levelCoins = n;
+  if (!quiet) { Snd.S.coin(); burst(x, y, z, 0xffe14a, 5, 3, 0.35, 4); }
+  if (n % 10 === 0 && P.health < P.maxHealth && P.state !== 'dead') { P.health++; heartPop(); }
+  updateHUD(false, 'coins');
+}
+function netCoin(x, y, z) { // collectCoin() in co-op: only the host counts
+  if (!NET.host) return;
+  const by = NET.credit || NET.pid;
+  NET.coins[by] = (NET.coins[by] || 0) + 1;
+  const n = NET.coins[by];
+  netBroadcast({ t: 'coin', by, n, x: r2(x), y: r2(y), z: r2(z) });
+  if (by === NET.pid) netMyCoin(n, x, y, z);
+}
+
+// ---------- goal ----------
+function netReachGoal(goal) {
+  NET.goalObj = goal;
+  P.state = 'win'; P.stateT = 0; P.vel.set(0, 0, 0); P.invuln = 0;
+  Snd.S.checkpoint(); burst(P.pos.x, P.pos.y + 2, P.pos.z, 0xffe14a, 24, 7, 0.9);
+  if (NET.host) netReached(NET.pid); else { NET.reached.add(NET.pid); netSend({ t: 'goal' }); netGoalToast(); }
+}
+function netReached(pid) { // host
+  if (!NET.reached.has(pid)) { NET.reached.add(pid); netBroadcast({ t: 'reach', pid }); netOnReach(pid); }
+  netCheckClear();
+}
+function netOnReach(pid) {
+  NET.reached.add(pid);
+  if (pid !== NET.pid && P.state !== 'win') showToast('<b>' + netEsc(netName(pid)) + '</b> reached the flag! Head there too!', 4);
+  else netGoalToast();
+}
+function netGoalToast() {
+  if (P.state !== 'win' || NET.cleared) return;
+  const wait = (room ? room.players() : []).filter((p) => !NET.reached.has(p.pid)).map((p) => netEsc(p.name));
+  if (wait.length) showToast('<b>You made it!</b> Waiting for ' + wait.join(' &amp; ') + ' to reach the flag&hellip;', 60);
+}
+function netCheckClear() {
+  if (!NET.host || NET.cleared || !NET.inLevel || mode !== 'playing' || !NET.reached.has(NET.pid)) return;
+  const ids = room.players().map((p) => p.pid);
+  if (!ids.every((id) => NET.reached.has(id))) return;
+  const names = {};
+  room.players().forEach((p) => { names[p.pid] = [p.name, p.color]; });
+  const d = { t: 'clear', coins: Object.assign({}, NET.coins), stars: run.stars.slice(), team: run.team.slice(), names };
+  netBroadcast(d);
+  netClear(d);
+}
+function netClear(d) {
+  if (NET.cleared) return;
+  NET.cleared = true; NET.clearInfo = d;
+  d.stars.forEach((s, i) => { if (s) run.stars[i] = true; });
+  d.team.forEach((s, i) => { if (s) run.team[i] = true; });
+  run.levelCoins = d.coins[NET.pid] || 0;
+  W.goalDone = true;
+  $('toast').classList.remove('show');
+  winLevel(NET.goalObj || { position: P.pos.clone() });
+}
+function netCompleteRows(rows) {
+  const d = NET.clearInfo;
+  if (!d) return;
+  rows.length = 0;
+  for (const pid in d.names) {
+    const nm = d.names[pid];
+    rows.push(['<span class="mp-dot" style="background:' + netEsc(nm[1]) + '"></span>' + netEsc(nm[0]) + (pid === NET.pid ? ' (you)' : ''), (d.coins[pid] || 0) + ' coins']);
+  }
+  rows.push(['Stars found', run.stars.filter(Boolean).length + ' / 3']);
+  rows.push(['Team stars', run.team.filter(Boolean).length + ' / 2']);
+  rows.push(['Time', fmtTime(run.time)]);
+  rows.push(['Your enemy bops', run.enemies]);
+}
+function netCompleteUI() {
+  const host = !NET.on || NET.host;
+  ['next-btn', 'replay-btn', 'complete-map-btn'].forEach((id) => $(id).classList.toggle('hidden', !host));
+  $('complete-title-btn').textContent = !NET.on ? 'TITLE SCREEN' : NET.host ? 'BACK TO LOBBY' : 'LEAVE GAME';
+  let note = $('mp-complete-note');
+  if (!note) { note = document.createElement('p'); note.id = 'mp-complete-note'; note.className = 'mp-note'; $('complete-stats').after(note); }
+  note.classList.toggle('hidden', host);
+  if (!host) note.innerHTML = 'Waiting for <b>' + netEsc(netHostName()) + '</b> to pick what&rsquo;s next&hellip;';
+}
+
+// ---------- level flow ----------
+function netAnnounceStart(i) { // host
+  NET.gen++;
+  room.setMeta({ game: 'land', lvl: i, gen: NET.gen, easy: !!save.easy, playing: true });
+  netBroadcast({ t: 'start', lvl: i, easy: !!save.easy });
+}
+function netStartFromHost(lvl, gen, easy) { // joiner
+  if (gen === NET.gen && NET.inLevel && curLevel === lvl) return;
+  NET.gen = gen;
+  save.easy = !!easy;
+  if (window.GrokNet) window.GrokNet.ui.hide();
+  NET.applying = true;
+  try { startLevel(lvl); } finally { NET.applying = false; }
+}
+function netLevelStarted() {
+  NET.inLevel = true; NET.cleared = false; NET.clearInfo = null; NET.goalObj = null;
+  NET.coins = {}; NET.reached = new Set(); NET.padsAcc = new Set(); NET.padsHost = new Set(); NET.pounds = new Set();
+  if (NET.host) NET.log = [];
+  NET.enemyMap = new Map(); for (const e of W.enemies) NET.enemyMap.set(e.id, e);
+  run.team = [false, false];
+  NET.soloHint = false;
+  netCloseMenu();
+  for (const R of NET.remotes.values()) { R.snaps.length = 0; R.last = null; R.head.active = false; }
+}
+function netWaitCard(title, msg) {
+  NET.inLevel = false;
+  mode = 'title';
+  Snd.stopMusic();
+  P.frozen = true;
+  setPlayingUI(false);
+  $('toast').classList.remove('show'); $('banner').classList.remove('show');
+  $('mp-kicker').textContent = 'CO-OP \u00b7 ROOM ' + NET.code;
+  $('mp-title').textContent = title;
+  $('mp-msg').innerHTML = msg;
+  $('mp-btns').innerHTML = '';
+  netMenuBtn('LEAVE GAME', netLeave, true);
+  netRoster();
+  showCard('mp-card');
+}
+function netRoster() {
+  const el = $('mp-roster');
+  if (!el || !room) return;
+  el.innerHTML = room.players().map((p) => '<div class="mp-pl"><span class="mp-dot" style="background:' + netEsc(p.color) + '"></span>' +
+    netEsc(p.name) + (p.pid === NET.pid ? ' <small>(you)</small>' : '') + (p.host ? ' <small>HOST</small>' : '') + '</div>').join('');
+}
+function netMenuBtn(label, fn, alt) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn' + (alt ? '' : ' primary'); b.textContent = label;
+  b.addEventListener('click', (e) => { Snd.init(); Snd.S.click(); e.currentTarget.blur(); fn(); });
+  $('mp-btns').appendChild(b);
+  return b;
+}
+function netToggleMenu() {
+  if (mode !== 'playing') return;
+  if (NET.menu) { netCloseMenu(); return; }
+  NET.menu = true;
+  $('mp-kicker').textContent = 'CO-OP \u00b7 ROOM ' + NET.code;
+  $('mp-title').textContent = 'CO-OP MENU';
+  $('mp-msg').innerHTML = 'The world keeps going while this menu is open.<br>Stars: <b>' + run.stars.filter(Boolean).length + ' / 3</b> &middot; Team stars: <b>' + run.team.filter(Boolean).length + ' / 2</b> &middot; Your coins: <b>' + run.levelCoins + '</b>';
+  $('mp-btns').innerHTML = '';
+  netMenuBtn('RESUME', netCloseMenu);
+  if (NET.host) {
+    netMenuBtn('RESTART WORLD', () => startLevel(curLevel), true);
+    netMenuBtn('WORLD MAP', () => { goTitle(); openMap(curLevel); }, true);
+    netMenuBtn('BACK TO LOBBY', netLobby, true);
+  } else netMenuBtn('LEAVE GAME', netLeave, true);
+  netRoster();
+  showCard('mp-card');
+}
+function netCloseMenu() {
+  if (!NET.menu) return;
+  NET.menu = false;
+  if (curCard === 'mp-card' && mode === 'playing') hideOverlay();
+}
+function netGoLobby() {
+  const GN = window.GrokNet, me = room.me() || {};
+  room.markNavigating();
+  location.href = GN.buildUrl(GN.hubUrl(), { mode: room.isHost ? 'host' : 'join', code: room.code, name: NET.prm.name, color: NET.prm.color, pid: room.pid, slot: me.slot });
+}
+function netLobby() {
+  if (!NET.host) { netLeave(); return; }
+  room.broadcast({ t: 'lobby' });
+  setTimeout(netGoLobby, 250);
+}
+function netLeave() {
+  const GN = window.GrokNet;
+  try { if (room) room.leave(); } catch (e) { /* ignore */ }
+  location.href = GN.hubUrl();
+}
+function netGoSolo() { // host left: keep playing this world alone
+  NET.on = false; NET.menu = false;
+  for (const pid of Array.from(NET.remotes.keys())) netDropRemote(pid);
+  if (netBadge) { netBadge.remove(); netBadge = null; }
+  document.body.classList.remove('mp');
+  if (window.GrokNet) window.GrokNet.ui.hide();
+  save.easy = NET.myEasy;
+  P.maxHealth = save.easy ? 5 : 3; P.health = Math.min(P.health, P.maxHealth);
+  for (const e of W.enemies) { if (e.snaps) e.snaps.length = 0; }
+  if (NET.inLevel && mode === 'playing') { hideOverlay(); updateHUD(true); showToast('Playing solo now. The team spots open up for you.', 4); }
+  else goTitle();
+}
+
+// ---------- messages ----------
+function netMsg(d, from) {
+  if (!d || typeof d !== 'object' || !NET.on) return;
+  const t = d.t;
+  if (t === 'p') { netOnPlayer(d, from); return; }
+  if (t === 'start') { if (!NET.host) netStartFromHost(d.lvl, d.g, d.easy); return; }
+  if (t === 'menu') { if (!NET.host) netWaitCard('HOST IS PICKING', 'Waiting for <b>' + netEsc(netHostName()) + '</b> to pick a world on the map&hellip;'); return; }
+  if (t === 'lobby') { if (!NET.host) netGoLobby(); return; }
+  if (t === 'log') { if (!NET.host && d.g === NET.gen) for (const ev of d.ev) netMsg(ev, ev.f || from); return; }
+  if (d.g !== NET.gen || !NET.inLevel) return;
+  if (NET.host) {
+    switch (t) {
+      case 'take': { const it = netItem(d.id); if (it) netTake(it, from); return; }
+      case 'kill': { const e = NET.enemyMap.get(d.id); if (e && e.alive) { NET.credit = from; killEnemy(e, d.k); NET.credit = null; } return; }
+      case 'bump': { const s = W.solids[d.k]; if (s && s.onBump && !s.used) { NET.credit = from; s.onBump(); NET.credit = null; } return; }
+      case 'door': { const s = W.solids[d.k]; if (s && s.doOpen && !s.opening) { netBroadcast({ t: 'door', k: d.k }); s.doOpen(); } return; }
+      case 'pound': NET.pounds.add(d.k); return;
+      case 'goal': netReached(from); return;
+      case 'blk': {
+        const b = W.pushBlocks[d.i];
+        if (!b || b.seated) return;
+        if (boxFree(d.x, b.y + 0.02, d.z, b.hx - 0.03, b.hy - 0.03, b.hz - 0.03, b)) setSolidPos(b, d.x, b.y, d.z);
+        if (d.sl && !b.slide) { b.slide = { axis: d.sl[0], dir: d.sl[1] }; Snd.S.slide(); }
+        return;
+      }
+    }
+  }
+  NET.applying = true;
+  try {
+    switch (t) {
+      case 'fall': { const s = W.solids[d.k]; if (s && s.onLand) s.onLand(); break; }
+      case 'ici': { const ic = W.icicles[d.k]; if (ic) ic.trigger(); break; }
+      case 'thw': { const s = W.solids[d.k]; if (s && s.trigger) s.trigger(); break; }
+      case 'bop': if (d.to === NET.pid) { P.squash = 0.6; Snd.S.bump(); } break;
+      case 'reach': if (!NET.host) netOnReach(d.pid); break;
+      case 'w': if (!NET.host) netOnWorld(d); break;
+      case 'qb': { const s = W.solids[d.k]; if (!NET.host && s && s.onBump && !s.used) { W.itemSeq = d.id; s.onBump(); } break; }
+      case 'took': { const it = netItem(d.id); if (!NET.host && it) { W.items.splice(W.items.indexOf(it), 1); W.root.remove(it.mesh); netApplyTook(it, d.by, d.n); } break; }
+      case 'coin': if (!NET.host && d.by === NET.pid) netMyCoin(d.n, d.x, d.y, d.z); break;
+      case 'ekill': { const e = NET.enemyMap.get(d.id); if (!NET.host && e && e.alive) { NET.applyBy = d.by; killEnemy(e, d.k); } break; }
+      case 'proj': if (!NET.host) fireProjectile(d.p[0], d.p[1], d.p[2], new V3(d.d[0], d.d[1], d.d[2]), d.s, d.k ? { kind: 'snow', grav: d.gr } : { grav: d.gr }); break;
+      case 'press': { const sw = W.netSw[d.k]; if (!NET.host && sw) sw.press(W.pushBlocks[d.b]); break; }
+      case 'door': { const s = W.solids[d.k]; if (!NET.host && s && s.doOpen) s.doOpen(); break; }
+      case 'solve': if (!NET.host && W.simon) W.simon.solve(); break;
+      case 'clear': if (!NET.host) netClear(d); break;
+    }
+  } finally { NET.applying = false; NET.applyBy = undefined; }
+}
+
+// ---------- boot ----------
+function netLoadScript(src, ok, fail) {
+  if (window.Peer) { ok(); return; }
+  const s = document.createElement('script');
+  s.src = src; s.onload = ok; s.onerror = fail;
+  document.head.appendChild(s);
+}
+function netBoot() {
+  const GN = window.GrokNet;
+  if (!GN) return;
+  const prm = GN.params();
+  if (!prm) return;
+  NET.on = true; NET.host = prm.mode === 'host'; NET.prm = prm; NET.pid = prm.pid; NET.code = prm.code;
+  NET.myEasy = !!save.easy; NET.sendT = 0; NET.dj = 0; NET.prevFlip = 0; NET.log = []; NET.csBad = 0; NET.inLevel = false;
+  NET.coins = {}; NET.reached = new Set(); NET.padsAcc = new Set(); NET.padsHost = new Set(); NET.pounds = new Set(); NET.enemyMap = new Map();
+  let h = 7; for (const ch of prm.code) h = (h * 31 + ch.charCodeAt(0)) & 0xffff;
+  NET.seed = h;
+  run.team = [false, false];
+  document.body.classList.add('mp');
+  // my hero wears my lobby colour
+  scene.remove(P.model.root);
+  P.model = buildHero(colorNum(prm.color));
+  scene.add(P.model.root);
+  resetPlayerAt(P.pos.clone(), 0); P.frozen = true;
+  $('title-card').classList.add('hidden');
+  GN.ui.status(NET.host ? 'Opening co-op room\u2026' : 'Joining co-op room\u2026', 'Room code ' + prm.code);
+  netLoadScript('peerjs.min.js', () => {
+    room = GN.joinFromParams(prm, { max: 3 });
+    room.on('open', () => {
+      GN.ui.hide();
+      if (!netBadge) netBadge = GN.ui.badge(room, { pos: 'tc', label: room.code });
+      if (NET.host) {
+        room.setMeta({ game: 'land', playing: false, gen: NET.gen });
+        if (!NET.inLevel) { mode = 'title'; openMap(); showToast('<b>You are the host.</b> Pick a world for your team!', 4); }
+      } else {
+        const m = room._meta || {};
+        if (m.playing && m.gen) netStartFromHost(m.lvl, m.gen, m.easy);
+        else netWaitCard('HOST IS PICKING', 'Waiting for <b>' + netEsc(netHostName()) + '</b> to pick a world on the map&hellip;');
+      }
+    });
+    room.on('meta', (m) => {
+      if (NET.host || !m) return;
+      if (m.playing && m.gen && m.gen !== NET.gen) netStartFromHost(m.lvl, m.gen, m.easy);
+    });
+    room.on('message', netMsg);
+    room.on('players', (list) => {
+      for (const p of list) { const R = NET.remotes.get(p.pid); if (R && (R.name !== p.name || R.color !== p.color)) { netDropRemote(p.pid); } }
+      for (const pid of Array.from(NET.remotes.keys())) if (!list.some((p) => p.pid === pid)) netDropRemote(pid);
+      if (curCard === 'mp-card') netRoster();
+    });
+    room.on('join', (p) => {
+      if (p.pid === NET.pid) return;
+      netNotice('<b>' + netEsc(p.name) + '</b> joined the game!', 3.5);
+      if (NET.host && NET.inLevel && (mode === 'playing' || mode === 'complete')) {
+        room.sendTo(p.pid, { t: 'start', lvl: curLevel, easy: !!save.easy, g: NET.gen });
+        room.sendTo(p.pid, { t: 'log', g: NET.gen, ev: NET.log });
+      }
+    });
+    room.on('leave', (p) => {
+      if (p.pid === NET.pid) return;
+      netDropRemote(p.pid);
+      if (p.host) return; // handled by the hostleft error
+      netNotice('<b>' + netEsc(p.name) + '</b> left the game.' + (netAlone() ? ' Team spots now work solo.' : ''), 6);
+      if (NET.host) { NET.reached.delete(p.pid); netCheckClear(); }
+      else netGoalToast();
+    });
+    room.on('reconnecting', () => netNotice('Connection to the host dropped &mdash; reconnecting&hellip;', 13));
+    room.on('reconnected', () => netNotice('Reconnected!', 2.5));
+    room.on('error', (err) => {
+      if (err.code === 'hostleft' && NET.inLevel) {
+        GN.ui.dialog({ title: 'Host left', message: netHostName() + ' left, so the co-op game ended. You can finish this world solo.', error: true, buttons: [
+          { label: 'KEEP PLAYING SOLO', id: 'mp-solo-btn', action: netGoSolo },
+          { label: 'BACK TO ARCADE', href: GN.hubUrl() }] });
+      } else GN.ui.error(err);
+      if (netBadge) netBadge.update();
+    });
+    room.start();
+  }, () => GN.ui.error('nopeer'));
+}
+function netDebug() {
+  return { on: NET.on, host: NET.host, gen: NET.gen, inLevel: NET.inLevel, pid: NET.pid, coins: Object.assign({}, NET.coins), reached: Array.from(NET.reached || []),
+    remotes: Array.from(NET.remotes.values()).map((R) => ({ pid: R.pid, name: R.name, x: R.view.pos.x, y: R.view.pos.y, z: R.view.pos.z, vis: R.view.model.root.visible, head: R.head.active, st: R.last && R.last.s })),
+    count: room ? room.count() : 0, team: run.team, cleared: NET.cleared, menu: NET.menu };
+}
+
+// ---------- co-op team zones (built only in co-op, next to each start island) ----------
+const TEAM_ZONES = [
+  { e: -10, s: 'grass', w: 'stone' }, { e: -7, s: 'grass', w: 'stone' }, { e: -7, s: 'castle', w: 'castle' },
+  { e: -8, s: 'snow', w: 'ice' }, { e: -8, s: 'grave', w: 'manor' }, { e: -7, s: 'metal', w: 'brass' },
+];
+const holdTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#1e8fff'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#ffffff'; g.lineWidth = 8; g.strokeRect(6, 6, w - 12, h - 12);
+  g.fillStyle = '#ffffff'; g.font = 'bold 36px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('HOLD', w / 2, h / 2 + 2);
+});
+function teamPlate(x, z, r) {
+  const g = new THREE.Group();
+  const frame = M(G.cyl, 0x1b1440, r + 0.15, 0.12, r + 0.15); frame.position.y = 0.06; g.add(frame);
+  const top = new THREE.Mesh(G.cyl, mat(0xffffff, { map: holdTex, emissive: 0x0a2a55 }));
+  top.scale.set(r, 0.14, r); top.position.y = 0.12; g.add(top);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, color: 0x3fa0ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.scale.setScalar(r * 4); glow.position.y = 0.6; g.add(glow);
+  g.position.set(x, 0, z); W.root.add(g);
+  return { top, glow };
+}
+function buildTeamZone(i) {
+  const Z = TEAM_ZONES[i];
+  if (!Z) return;
+  const cx = Z.e - 15, H = 6.5;
+  addIsland(cx, 0, 0, 16, 14, Z.s, 3, { bare: true });
+  addBox(Z.e - 3.5, 0, 0, 7.8, 2.8, 0.8, 'wood');
+  // the vault: a little house whose door only opens while someone holds the blue plate
+  const vx = cx - 4.2;
+  addBox(vx - 2.1, H, 0, 0.6, 4.8, H, Z.w);
+  addBox(vx, H, -2.1, 4.8, 0.6, H, Z.w);
+  addBox(vx, H, 2.1, 4.8, 0.6, H, Z.w);
+  addBox(vx + 2.1, H, -1.6, 0.6, 1.6, H, Z.w);
+  addBox(vx + 2.1, H, 1.6, 0.6, 1.6, H, Z.w);
+  addBox(vx + 2.1, H, 0, 0.6, 1.6, H - 3.4, Z.w);
+  addBox(vx, H + 0.35, 0, 5.4, 5.4, 0.35, 'gold');
+  const dg = new THREE.Group();
+  const pane = new THREE.Mesh(G.box, new THREE.MeshBasicMaterial({ color: 0x3fd0ff, transparent: true, opacity: 0.45 }));
+  pane.scale.set(0.2, 3.4, 1.6); dg.add(pane);
+  for (const zz of [-0.55, 0, 0.55]) { const bar = M(G.box, 0x2fa8ff, 0.16, 3.4, 0.12); bar.position.z = zz; dg.add(bar); }
+  const lock = M(G.sphereLo, 0xffe14a, 0.22); lock.position.set(0.15, 0, 0); dg.add(lock);
+  dg.position.set(vx + 2.1, 1.7, 0); W.root.add(dg);
+  const door = addSolid(vx + 2.1, 1.7, 0, 0.18, 1.7, 0.8, 'gate', dg);
+  const plate = teamPlate(cx + 2.6, 4.4, 1.15);
+  const inner = teamPlate(vx - 0.9, 1.0, 0.75);
+  addItem('tstar', vx - 0.6, 1.5, -0.9, { idx: 0 });
+  coinLine(vx - 1.2, 0.8, 1.2, vx + 0.6, 0.8, 1.2, 3);
+  let k = 0, hold = 0, wasOpen = false;
+  W.things.push({ update(dt) {
+    const pOn = onPad(cx + 2.6, 0, 4.4, 1.15), iOn = onPad(vx - 0.9, 0, 1.0, 0.75), alone = netAlone();
+    if (pOn || iOn || alone) hold = 0.6; else hold -= dt;
+    let open = hold > 0;
+    if (!open && k > 0) { // never shut on someone standing in the doorway
+      const inDoor = (x, y, z) => Math.abs(x - door.x) < 0.75 && Math.abs(z) < 1.25 && y < 3.6 && y > -1;
+      if (inDoor(P.pos.x, P.pos.y, P.pos.z)) open = true;
+      for (const R of NET.remotes.values()) if (netRemoteLive(R) && inDoor(R.last.x, R.last.y, R.last.z)) open = true;
+    }
+    if (open && !wasOpen && !alone) Snd.S.door();
+    wasOpen = open;
+    const nk = clamp(k + (open ? dt * 2.8 : -dt * 2.2), 0, 1);
+    if (nk !== k) { k = nk; setSolidPos(door, door.x, 1.7 - k * 3.45, door.z); }
+    plate.top.position.y = pOn ? 0.06 : 0.12; plate.glow.material.opacity = pOn ? 0.8 : 0;
+    inner.top.position.y = iOn ? 0.06 : 0.12; inner.glow.material.opacity = iOn ? 0.8 : 0;
+    if (alone && !NET.soloHint && Math.abs(P.pos.x - cx) < 9 && Math.abs(P.pos.z) < 8 && mode === 'playing') {
+      NET.soloHint = true;
+      showToast('Playing solo: the vault door stays open and a <b>spring</b> appears by the tall pillar.', 5);
+    }
+  } });
+  // tall pillar: stand on your partner's head (or bounce off it) to reach the top
+  addBox(cx + 4.5, H, -3.6, 3, 3, H, Z.w);
+  addItem('tstar', cx + 4.5, H + 1.3, -3.6, { idx: 1 });
+  coinRing(cx + 4.5, H + 0.7, -3.6, 1.1, 4);
+  const spring = addSpring(cx + 4.5, 0, -0.6);
+  spring.active = false; spring.group.visible = false;
+  W.things.push({ update() { const a = netAlone(); spring.active = a; spring.group.visible = a; } });
+  addHint(cx + 6.8, 0, 3.2,
+    '<b>TEAM ZONE!</b> One player stands on the blue <b>HOLD</b> plate so the vault door stays open for the other. ' +
+    'For the tall pillar, land on your partner&rsquo;s <b>head</b> to stand on it, or hold <b>JUMP</b> as you land to bounce way up!',
+    '<b>TEAM ZONE!</b> One player stands on the blue <b>HOLD</b> plate so the vault door opens for the other. ' +
+    'Tall pillar: land on your partner&rsquo;s <b>head</b>, or keep holding <b>JUMP</b> as you land to bounce way up!', 3.4);
 }
 
 // =====================================================================
@@ -3852,11 +4762,12 @@ setPlayingUI(false);
 renderLevelSelect();
 showCard('title-card');
 updateHUD(true);
+netBoot();
 requestAnimationFrame(frame);
 
 // debug/test hook (harmless in production)
 window.__grok = {
-  W, P, run, cam, startLevel, LEVELS, input, keys, touchState, save, openMap, setEasy, goTitle,
+  W, P, run, cam, startLevel, LEVELS, input, keys, touchState, save, openMap, setEasy, goTitle, NET, netDebug: () => netDebug(),
   get mode() { return mode; },
   get card() { return curCard; },
   get mapSel() { return mapSel; },

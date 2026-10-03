@@ -333,3 +333,36 @@ body.touch #level-name { display: none; }
   #title-card .controls { display: none; }
   .stats { gap: 2px 16px; font-size: 15px; }
 }
+
+/* ---------- online co-op (only with ?mp= from the Grok Arcade lobby) ---------- */
+body.mp #level-name { top: calc(40px + var(--safe-t)); }
+body.mp #hud-left, body.mp #hud-right { top: calc(36px + var(--safe-t)); }
+body.mp.touch #toast { top: calc(96px + var(--safe-t)); }
+#mp-arrows { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+.mp-arrow { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.mp-arrow.hidden { display: none; }
+.mp-arrow i {
+  position: absolute; left: 0; top: 0; width: 0; height: 0;
+  border-top: 17px solid transparent; border-bottom: 17px solid transparent; border-left: 30px solid var(--c, #3ff0ff);
+  filter: drop-shadow(0 0 2px #1b1440) drop-shadow(0 2px 0 #1b1440);
+}
+.mp-arrow span {
+  position: absolute; left: 0; top: 22px; transform: translateX(-50%);
+  background: rgba(27,20,64,.85); color: #fff; border: 2px solid var(--c, #3ff0ff); border-radius: 12px;
+  padding: 2px 9px; font-size: 14px; letter-spacing: 1px; white-space: nowrap;
+}
+.mp-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #1b1440; margin-right: 7px; vertical-align: -1px; }
+#mp-roster { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 4px 0 6px; }
+.mp-pl { background: rgba(255,255,255,.8); border: 3px solid #1b1440; border-radius: 14px; padding: 5px 12px; font-size: 18px; }
+.mp-pl small { font-size: 11px; color: #6a5a9c; letter-spacing: 1px; }
+.mp-note { font-size: 17px; color: #4a3d7c; margin: 12px 0 4px; }
+.mp-note.hidden { display: none; }
+#complete-card .btn.hidden { display: none; }
+#mp-notice {
+  position: fixed; left: 50%; top: calc(38px + var(--safe-t)); transform: translate(-50%, -10px); z-index: 25;
+  background: rgba(27,20,64,.9); color: #fff; border: 3px solid #3ff0ff; border-radius: 16px;
+  padding: 7px 16px; font-size: 17px; text-align: center; max-width: 88vw; pointer-events: none;
+  opacity: 0; transition: opacity .25s, transform .25s;
+}
+#mp-notice.show { opacity: 1; transform: translate(-50%, 0); }
+#mp-notice b { color: #ffe14d; }

@@ -41,6 +41,8 @@
     </div>
   </div>
 
+  <div id="mp-arrows"></div>
+  <div id="mp-notice"></div>
   <div id="fade"></div>
 
   <div id="overlay" class="show">
@@ -104,6 +106,14 @@
       <button id="complete-title-btn" type="button" class="btn ghost">TITLE SCREEN</button>
     </div>
 
+    <div class="card hidden" id="mp-card">
+      <p class="kicker" id="mp-kicker">CO-OP</p>
+      <h2 id="mp-title">CO-OP</h2>
+      <p class="small" id="mp-msg"></p>
+      <div id="mp-roster"></div>
+      <div id="mp-btns"></div>
+    </div>
+
     <div class="card hidden" id="gameover-card">
       <h2 class="bad">GAME OVER</h2>
       <p class="small">Out of lives! Grab a fresh set and try again.</p>
@@ -115,6 +125,7 @@
   <div id="loading">LOADING GROK LAND&hellip;</div>
 
   <script src="three.min.js"></script>
+  <script src="grok-net.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
