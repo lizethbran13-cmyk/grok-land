@@ -366,3 +366,13 @@ body.mp.touch #toast { top: calc(96px + var(--safe-t)); }
 }
 #mp-notice.show { opacity: 1; transform: translate(-50%, 0); }
 #mp-notice b { color: #ffe14d; }
+/* 3.0: level chips for multi-level worlds */
+#map-levels { display: flex; gap: 8px; justify-content: center; margin: 4px 0 2px; }
+#map-levels.hidden { display: none; }
+.lvl-chip { font: inherit; cursor: pointer; color: #1b1440; background: #fff7dc; border: 3px solid #1b1440; border-radius: 12px; padding: 3px 10px; font-size: 15px; box-shadow: 0 3px 0 #1b1440; }
+.lvl-chip small { font-size: 10px; color: var(--gold); letter-spacing: 0; }
+.lvl-chip small .no { color: #d8cfb5; }
+.lvl-chip.sel { background: #ffd23f; outline: 3px solid #ff9d00; }
+.lvl-chip.cleared { background: #c8f5c0; }
+.lvl-chip.cleared.sel { background: #ffd23f; }
+@media (max-height: 520px) { .lvl-chip { font-size: 13px; padding: 1px 8px; } #map-levels { margin: 2px 0 0; } }

@@ -26,7 +26,7 @@ let IS_TOUCH = matchMedia('(pointer: coarse)').matches || (('ontouchstart' in wi
 // Save data
 // =====================================================================
 const SAVE_KEY = 'grokland_v1';
-const NUM_LEVELS = 6;
+const NUM_LEVELS = 12;
 const save = { stars: [], cleared: [], bestCoins: [], bestTime: [], muted: false, easy: false, seen2: false };
 try {
   const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
@@ -136,6 +136,8 @@ const Snd = (() => {
     lever() { tone(180, 0.08, 'square', 0.12, 120); noise(0.12, 0.15, 600); tone(660, 0.1, 'triangle', 0.08, null, 0.08); },
     slide() { noise(0.3, 0.1, 2400, 0, null, 'bandpass'); },
     secret() { arp([79, 83, 86, 91], 0.06, 'triangle', 0.09); },
+    warp() { tone(300, 0.35, 'sine', 0.12, 1800); tone(900, 0.25, 'triangle', 0.06, 2400, 0.08); noise(0.2, 0.06, 4000, 0, null, 'highpass'); },
+    boost() { tone(220, 0.4, 'square', 0.1, 1100); noise(0.3, 0.12, 1500); },
   };
 
   // ---- music ----
@@ -176,6 +178,18 @@ const Snd = (() => {
         67, 67, 0, 74, 0, 77, 76, 0, 74, 0, 72, 74, 76, 0, 79, 0, 77, 0, 76, 74, 72, 0, 71, 0, 67, 0, 69, 0, 71, 0, 0, 0],
       chords: [43, 43, 41, 41, 48, 48, 43, 50], minor: [0, 0, 0, 0, 0, 0, 0, 0],
     },
+    { // CORAL COAST — breezy calypso Bb
+      bpm: 140,
+      mel: [70, 0, 74, 77, 0, 74, 77, 0, 79, 77, 74, 0, 72, 0, 70, 0, 72, 0, 75, 79, 0, 75, 79, 0, 81, 79, 77, 0, 75, 0, 72, 0,
+        70, 0, 74, 77, 0, 74, 77, 0, 82, 81, 79, 0, 77, 0, 74, 0, 75, 0, 74, 72, 0, 70, 72, 0, 70, 0, 0, 0, 0, 0, 0, 0],
+      chords: [46, 46, 51, 51, 53, 53, 46, 46], minor: [0, 0, 0, 0, 0, 0, 0, 0],
+    },
+    { // STARLIGHT STATION — spacey C minor
+      bpm: 128,
+      mel: [72, 0, 75, 0, 79, 0, 84, 0, 82, 0, 79, 0, 75, 0, 77, 0, 79, 0, 0, 77, 75, 0, 74, 0, 72, 0, 0, 0, 67, 0, 70, 0,
+        72, 0, 75, 0, 79, 0, 84, 0, 87, 0, 86, 84, 82, 0, 79, 0, 80, 0, 79, 0, 77, 0, 75, 0, 74, 0, 72, 0, 0, 0, 0, 0],
+      chords: [48, 48, 44, 44, 51, 51, 43, 43], minor: [1, 1, 0, 0, 0, 0, 0, 0],
+    },
   ];
   let musicTimer = null, song = null, step = 0, nextTime = 0, pendingSong = null;
   function playStep(s, t) {
@@ -201,7 +215,7 @@ const Snd = (() => {
     pendingSong = i;
     if (!ctx) return;
     stopMusic(); pendingSong = i;
-    song = SONGS[i % SONGS.length]; step = 0; nextTime = ctx.currentTime + 0.1;
+    song = SONGS[songOf(i) % SONGS.length]; step = 0; nextTime = ctx.currentTime + 0.1;
     musicTimer = setInterval(schedule, 50);
   }
   function stopMusic() { pendingSong = null; if (musicTimer) clearInterval(musicTimer); musicTimer = null; song = null; }
@@ -532,7 +546,7 @@ const V3 = THREE.Vector3;
 const W = {
   root: null, solids: [], things: [], enemies: [], items: [], projectiles: [], pushBlocks: [], colorBlocks: [], toggles: [],
   checkpoints: [], anim: [], time: 0, colorState: 'red', killY: -10, lavaY: null, lavaMesh: null, lavaBase: null,
-  levelIdx: 0, checkpoint: { pos: new V3(), yaw: 0 }, clouds: [], goalDone: false,
+  levelIdx: 0, checkpoint: { pos: new V3(), yaw: 0 }, clouds: [], goalDone: false, zones: [],
 };
 const particles = [];
 const rings = [];
@@ -555,7 +569,7 @@ function clearWorld() {
   if (W.root) scene.remove(W.root);
   W.root = new THREE.Group();
   scene.add(W.root);
-  for (const k of ['solids', 'things', 'enemies', 'items', 'projectiles', 'pushBlocks', 'colorBlocks', 'toggles', 'checkpoints', 'anim', 'clouds']) W[k].length = 0;
+  for (const k of ['solids', 'things', 'enemies', 'items', 'projectiles', 'pushBlocks', 'colorBlocks', 'toggles', 'checkpoints', 'anim', 'clouds', 'zones']) W[k].length = 0;
   for (const p of particles) scene.remove(p.m);
   particles.length = 0;
   for (const r of rings) scene.remove(r.m);
@@ -723,7 +737,7 @@ function addIsland(x, top, z, w, d, style, h, opts) {
   h = h || 3;
   const s = addBox(x, top, z, w, d, h, style, 'static', { noCast: true });
   const depth = Math.min(w, d) * 0.7 + 2;
-  const rockColor = (opts && opts.rock) || ({ cloud: 0xf4f0ff, snow: 0x8090a8, ice: 0x6aa8d0, grave: 0x3a3048, manor: 0x3a3048, metal: 0x3d4450, brass: 0x5a4020 })[style] || 0x9a6a44;
+  const rockColor = (opts && opts.rock) || ({ cloud: 0xf4f0ff, snow: 0x8090a8, ice: 0x6aa8d0, grave: 0x3a3048, manor: 0x3a3048, metal: 0x3d4450, brass: 0x5a4020, sand: 0xb08850, reef: 0x1f6a70, coral: 0xc05060, moon: 0x55556a, hull: 0x3a4058, neon: 0x1a1440, gold: 0x8a6420 })[style] || 0x9a6a44;
   const cone = new THREE.Mesh(G.cone6, mat(rockColor));
   cone.rotation.x = Math.PI;
   cone.scale.set(w * 0.55, depth, d * 0.55);
@@ -1627,7 +1641,7 @@ function addLeverPuzzle(cfg) {
     if (ch) paint();
     if (solved && !pz.solved) {
       pz.solved = true; Snd.S.solve();
-      showToast('<b>ALL LIGHTS ON!</b> The factory gate rumbles open!', 3.5);
+      showToast(cfg.msg || '<b>ALL LIGHTS ON!</b> The factory gate rumbles open!', 3.5);
       if (cfg.onSolve) cfg.onSolve();
     }
   };
@@ -1653,7 +1667,7 @@ function addLeverPuzzle(cfg) {
         paint(); Snd.S.lever(); ringFx(x, top, z, 0xffd23f, 2.5);
         if (state.every(Boolean)) {
           pz.solved = true; Snd.S.solve();
-          showToast('<b>ALL LIGHTS ON!</b> The factory gate rumbles open!', 3.5);
+          showToast(cfg.msg || '<b>ALL LIGHTS ON!</b> The factory gate rumbles open!', 3.5);
           if (cfg.onSolve) cfg.onSolve();
         } else showToast('Lights on: <b>' + state.filter(Boolean).length + ' / ' + state.length + '</b>', 1.6);
       }
@@ -2260,6 +2274,7 @@ function landOn(s) {
     P.bounceV = P.state === 'pound' ? SPRING_V * 1.15 : SPRING_V;
     s.anim = 0.4;
   } else if (s.kind === 'falling' && s.onLand) s.onLand();
+  else if (s.kind === 'launch' && P.state !== 'launch') P.launchPad = s;
   if (s.kind === 'static') {
     P.lastSafe.set(s.hx > 0.8 ? clamp(P.pos.x, s.x - s.hx + 0.8, s.x + s.hx - 0.8) : s.x, s.y + s.hy, s.hz > 0.8 ? clamp(P.pos.z, s.z - s.hz + 0.8, s.z + s.hz - 0.8) : s.z);
   }
@@ -2345,6 +2360,8 @@ function playerTick(dt) {
     if (P.stateT > 0.2) { P.state = 'normal'; P.stateT = 0; }
   } else if (P.state === 'hurt') {
     if ((P.grounded && P.stateT > 0.25) || P.stateT > 0.9) { P.state = 'normal'; P.stateT = 0; }
+  } else if (P.state === 'launch') {
+    if (P.stateT > 5) { P.state = 'normal'; P.stateT = 0; } // boost-pad flight keeps its arc
   } else if (P.state === 'lava') {
     if ((P.grounded && P.stateT > 0.2) || P.stateT > 2.5) { P.state = 'normal'; P.stateT = 0; }
   } else {
@@ -2404,15 +2421,22 @@ function playerTick(dt) {
   if (P.vel.y > 0 && P.jumping && !input.jump) g *= 2.7;
   if (P.state === 'poundStart') g = 0;
   if (P.state === 'lava') g = G_LAVA;
-  if (P.state !== 'pound') P.vel.y = Math.max(P.vel.y - g * dt, -MAX_FALL);
+  const zn = W.zones.length ? zoneAt(P.pos.x, P.pos.y + 0.5, P.pos.z) : null; // 3.0: low gravity / water spouts
+  if (zn && zn.grav) g *= zn.grav;
+  if (P.state !== 'pound') P.vel.y = Math.max(P.vel.y - g * dt, -MAX_FALL * (zn && zn.grav ? 0.55 : 1));
+  if (zn && zn.lift && P.state !== 'pound' && P.state !== 'poundStart' && P.state !== 'dead') {
+    P.vel.y = Math.min(P.vel.y + zn.lift * dt, zn.maxUp); P.canDouble = true; P.jumping = false;
+    if (P.state === 'launch') { P.state = 'normal'; P.stateT = 0; }
+  }
 
   // ---- integrate with collision ----
-  P.grounded = false; P.ground = null; P.landVy = 0; P.bounceV = 0;
+  P.grounded = false; P.ground = null; P.landVy = 0; P.bounceV = 0; P.launchPad = null;
   pMove('x', P.vel.x * dt);
   pMove('z', P.vel.z * dt);
   pMove('y', P.vel.y * dt);
 
-  if (P.bounceV) {
+  if (P.launchPad) { launchFrom(P.launchPad); P.launchPad = null; }
+  else if (P.bounceV) {
     P.vel.y = P.bounceV; P.grounded = false; P.jumping = false; P.canDouble = true;
     if (P.state !== 'normal' && P.state !== 'spin') { P.state = 'normal'; P.stateT = 0; }
     P.squash = 1.4; Snd.S.spring(); P.bounceV = 0;
@@ -2442,7 +2466,7 @@ function onPlayerLand() {
     }
     P.squash = 0.55;
   } else {
-    if (P.state === 'longjump' || P.state === 'hurt') { P.state = 'normal'; P.stateT = 0; }
+    if (P.state === 'longjump' || P.state === 'hurt' || P.state === 'launch') { P.state = 'normal'; P.stateT = 0; }
     if (impact > 10) { P.squash = 0.72; dust(P.pos.x, P.pos.y, P.pos.z, 5); }
   }
 }
@@ -2643,7 +2667,7 @@ function animateHero(P, dt) {
   } else if (st === 'pound') {
     m.legL.rotation.x = -0.4; m.legR.rotation.x = -0.4; m.armL.rotation.z = -2.2; m.armR.rotation.z = 2.2;
     m.body.scale.set(0.85, 1.2, 0.85);
-  } else if (st === 'longjump') {
+  } else if (st === 'longjump' || st === 'launch') {
     m.body.rotation.x = 0.9;
     m.armL.rotation.x = -2.6; m.armR.rotation.x = -2.6;
     m.legL.rotation.x = 0.6; m.legR.rotation.x = 0.6;
@@ -3440,14 +3464,686 @@ function buildFactory() {
   };
 }
 
+// =====================================================================
+// 3.0 — new mechanics for worlds 7 & 8 (all either local to each player or driven by W.time, so co-op stays in sync)
+// =====================================================================
+STYLE.sand = { side: 0xe0b070, top: 0xffe3a6, cap: 0.35 };
+STYLE.coral = { side: 0xf0607a, top: 0xffa8b6, cap: 0.2 };
+STYLE.reef = { side: 0x24958e, top: 0x5fe0c8, cap: 0.22 };
+STYLE.tide = { side: 0xd0a060, top: 0xf6d698, cap: 0.2 };
+STYLE.moon = { side: 0x7d7d96, top: 0xd6d6e6, cap: 0.3 };
+STYLE.hull = { side: 0x4f5878, top: 0xa6b2d8, cap: 0.16 };
+STYLE.neon = { side: 0x2a2060, top: 0x56f0ff, cap: 0.12, emissive: 0x10305a };
+// Zones change the local player's gravity (low-gravity fields) or lift them (water spouts).
+function zoneAt(x, y, z) {
+  for (let i = 0; i < W.zones.length; i++) {
+    const zn = W.zones[i];
+    if (zn.active === false) continue;
+    if (Math.abs(x - zn.x) < zn.hx && Math.abs(z - zn.z) < zn.hz && y > zn.y0 && y < zn.y1) return zn;
+  }
+  return null;
+}
+function addLowGrav(x, z, hx, hz, y0, y1, grav) {
+  const zn = { x, z, hx, hz, y0, y1, grav: grav || 0.42, active: true };
+  W.zones.push(zn);
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(G.box, new THREE.MeshBasicMaterial({ color: 0xb070ff, transparent: true, opacity: 0.06, depthWrite: false }));
+  box.scale.set(hx * 2, y1 - y0, hz * 2); g.add(box);
+  const edges = new THREE.LineSegments(G.boxEdges, new THREE.LineBasicMaterial({ color: 0xc89aff, transparent: true, opacity: 0.35 }));
+  edges.scale.copy(box.scale); g.add(edges);
+  g.position.set(x, (y0 + y1) / 2, z); W.root.add(g);
+  const motes = [], r = mulberry(Math.round(x * 7 + z * 13) + 99);
+  const n = Math.min(26, Math.round(hx * hz / 3));
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(G.octa, basic(i % 2 ? 0xe0c0ff : 0x9a7aff)); m.scale.setScalar(0.09 + r() * 0.08);
+    m.userData.b = [x + (r() * 2 - 1) * hx, y0 + r() * (y1 - y0), z + (r() * 2 - 1) * hz, r() * TAU];
+    W.root.add(m); motes.push(m);
+  }
+  W.things.push({ update() {
+    for (const m of motes) { const b = m.userData.b; m.position.set(b[0] + Math.sin(W.time * 0.7 + b[3]) * 0.4, y0 + (((b[1] - y0 + W.time * 0.8) % (y1 - y0)) + (y1 - y0)) % (y1 - y0), b[2]); m.rotation.y = W.time + b[3]; }
+  } });
+  return zn;
+}
+// Water spout: when it is up it lifts you (ride it, then steer off at the top). Bubbles = about to erupt.
+function addGeyser(x, top, z, height, period, onT, phase) {
+  const zn = { x, z, hx: 1.05, hz: 1.05, y0: top - 0.6, y1: top + height, lift: 82, maxUp: 10, active: true, period, onT, ph: phase || 0, geyser: true };
+  W.zones.push(zn);
+  const vent = new THREE.Group();
+  const ring = M(G.cyl, 0x7a5a3a, 1.15, 0.25, 1.15); ring.position.y = 0.12; vent.add(ring);
+  const hole = new THREE.Mesh(G.cyl, basic(0x1b4a6a)); hole.scale.set(0.85, 0.27, 0.85); hole.position.y = 0.13; vent.add(hole);
+  vent.position.set(x, top, z); W.root.add(vent);
+  const col = new THREE.Mesh(G.cyl, new THREE.MeshBasicMaterial({ color: 0xcff6ff, transparent: true, opacity: 0.45, depthWrite: false }));
+  col.position.set(x, top, z); W.root.add(col);
+  const cap = new THREE.Mesh(G.sphereLo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false }));
+  W.root.add(cap);
+  let h = 0, bub = 0;
+  W.things.push({ update(dt) {
+    const u = ((((W.time + zn.ph) % period) + period) % period);
+    const on = onT >= period || u < onT;
+    zn.active = on;
+    const want = on ? height : 0;
+    h = lerp(h, want, damp(on ? 9 : 6, dt));
+    col.visible = h > 0.15; cap.visible = col.visible;
+    const wob = 1 + Math.sin(W.time * 20) * 0.05;
+    col.scale.set(0.8 * wob, Math.max(0.01, h), 0.8 * wob); col.position.y = top + h / 2;
+    cap.scale.set(1.25 * wob, 0.6, 1.25 * wob); cap.position.set(x, top + h, z);
+    bub -= dt;
+    if (bub <= 0) {
+      const warn = !on && u > period - 1.0;
+      if (on || warn) { bub = on ? 0.12 : 0.18; burst(x + (Math.random() - 0.5) * 1.2, top + (on ? h : 0.3), z + (Math.random() - 0.5) * 1.2, 0xe8fbff, on ? 2 : 3, on ? 4 : 2, 0.5, on ? 10 : -2, 1.2); }
+      else bub = 0.3;
+    }
+  } });
+  return zn;
+}
+// Tide sandbar: up for onT seconds, shakes, then sinks under the water and comes back up.
+function addTide(x, top, z, w, d, period, onT, phase) {
+  const s = addBox(x, top, z, w, d, 0.7, 'tide', 'tide');
+  s.T = period; s.on = onT; s.ph = phase || 0; s.noCam = true;
+  const y0 = s.y, drop = 2.6, waterY = W.water ? W.water.position.y : top - 1;
+  for (let i = 0; i < 3; i++) { const sh = M(G.sphereLo, [0xffffff, 0xff9ab0, 0xffd27a][i], 0.16, 0.09, 0.16); sh.position.set((i - 1) * w * 0.28, 0.36, (i % 2 ? 0.25 : -0.2) * d); s.mesh.add(sh); }
+  W.things.push({ update() {
+    const u = ((((W.time + s.ph) % period) + period) % period);
+    let k; // 0 = up, 1 = fully sunk
+    if (u < onT) k = 0; else if (u < onT + 0.5) k = (u - onT) / 0.5; else if (u < period - 0.5) k = 1; else k = 1 - (u - (period - 0.5)) / 0.5;
+    const warn = u > onT - 0.8 && u < onT;
+    const ny = y0 - drop * k;
+    setSolidPos(s, s.x, ny, s.z);
+    s.mesh.position.x = s.x + (warn ? Math.sin(W.time * 60) * 0.06 : 0);
+    const act = ny + s.hy > waterY + 0.08;
+    if (act !== s.active) { s.active = act; if (!act && P.ground === s) P.ground = null; }
+  } });
+  return s;
+}
+// Jellyfish: a bouncy spring that can float and bob on the water.
+function addJelly(x, top, z, bob, period, phase, color) {
+  const g = new THREE.Group();
+  const c = color || 0xff7ad8;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 8, 0, TAU, 0, Math.PI / 2), mat(c, { emissive: 0x401040, transparent: true, opacity: 0.85 }));
+  dome.scale.set(0.85, 0.6, 0.85); dome.position.y = 0.05; g.add(dome);
+  const rim = M(G.cyl, 0xffd0f0, 0.88, 0.1, 0.88); rim.position.y = 0.05; g.add(rim);
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; const t = M(G.cyl8, c, 0.05, 0.7, 0.05); t.position.set(Math.cos(a) * 0.5, -0.3, Math.sin(a) * 0.5); g.add(t); }
+  eyesOn(g, 0.32, 0.62, 0.18, 0.09, false);
+  shadowy(g, true, false);
+  W.root.add(g);
+  const s = addSolid(x, top + 0.3, z, 0.8, 0.3, 0.8, 'spring', null);
+  s.anim = 0; s.jelly = true;
+  W.things.push({ update(dt) {
+    const y = top + (bob ? bob * Math.sin((W.time / (period || 3) + (phase || 0)) * TAU) : 0);
+    setSolidPos(s, x, y + 0.3, z);
+    s.anim = Math.max(0, s.anim - dt);
+    const k = s.anim > 0 ? Math.sin((1 - s.anim / 0.4) * Math.PI * 3) * (s.anim / 0.4) : 0;
+    g.position.set(x, y + 0.2, z);
+    g.scale.set(1 + k * 0.25, 1 - k * 0.35 + Math.sin(W.time * 3 + x) * 0.04, 1 + k * 0.25);
+  } });
+  return s;
+}
+// Laser fence: three beams that blink on and off (they flicker just before switching on).
+function addLaser(x, top, z, len, axis, onT, offT, phase) {
+  const T = onT + offT;
+  const g = new THREE.Group();
+  const beams = [];
+  const bm = new THREE.MeshBasicMaterial({ color: 0xff2a5a, transparent: true, opacity: 0.9 });
+  for (const hy of [0.35, 1.0, 1.65]) { const b = new THREE.Mesh(G.cyl8, bm); b.scale.set(0.07, len, 0.07); b.rotation.z = Math.PI / 2; b.position.y = hy; g.add(b); beams.push(b); }
+  for (const sd of [-1, 1]) {
+    const post = M(G.box, 0x2b2f48, 0.45, 2.2, 0.45); post.position.set(sd * (len / 2 + 0.2), 1.1, 0); g.add(post);
+    const lamp = new THREE.Mesh(G.sphereLo, basic(0xff2a5a)); lamp.scale.setScalar(0.16); lamp.position.set(sd * (len / 2 + 0.2), 2.3, 0); g.add(lamp);
+  }
+  if (axis === 'z') g.rotation.y = Math.PI / 2;
+  g.position.set(x, top, z); W.root.add(g);
+  const L = { onT, offT, T, ph: phase || 0, x, z, axis, len, on: false };
+  W.things.push({ update() {
+    const u = ((((W.time + L.ph) % T) + T) % T);
+    const on = u < onT, warn = !on && u > T - 0.6;
+    L.on = on;
+    for (const b of beams) { b.visible = on || (warn && Math.floor(W.time * 16) % 2 === 0); b.scale.x = b.scale.z = on ? 0.07 + Math.sin(W.time * 40) * 0.015 : 0.03; }
+    if (!on || P.invuln > 0 || P.state === 'dead') return;
+    const along = axis === 'x' ? P.pos.x - x : P.pos.z - z, across = axis === 'x' ? P.pos.z - z : P.pos.x - x;
+    if (Math.abs(along) < len / 2 && Math.abs(across) < 0.12 + P.r && P.pos.y < top + 1.75 && P.pos.y + P.h > top + 0.25) {
+      hurtPlayer(axis === 'x' ? new V3(P.pos.x, P.pos.y, z) : new V3(x, P.pos.y, P.pos.z), 'laser');
+    }
+  } });
+  return L;
+}
+// Teleporter pair: step on one pad and you warp to the other (step off before it works again).
+function addTeleporter(ax, atop, az, bx, btop, bz, color) {
+  const c = color || 0x56f0ff;
+  const mk = (x, top, z) => {
+    const g = new THREE.Group();
+    const base = M(G.cyl, 0x2b2f48, 1.0, 0.16, 1.0); base.position.y = 0.08; g.add(base);
+    const disc = new THREE.Mesh(G.cyl, basic(c)); disc.scale.set(0.75, 0.18, 0.75); disc.position.y = 0.09; g.add(disc);
+    const ring = new THREE.Mesh(G.torus, basic(0xffffff)); ring.rotation.x = Math.PI / 2; ring.scale.set(0.8, 0.8, 1.6); ring.position.y = 0.6; g.add(ring);
+    const beam = new THREE.Mesh(G.cyl, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.18, depthWrite: false })); beam.scale.set(0.8, 3, 0.8); beam.position.y = 1.6; g.add(beam);
+    g.position.set(x, top, z); W.root.add(g);
+    return { x, top, z, ring };
+  };
+  const A = mk(ax, atop, az), B = mk(bx, btop, bz);
+  const tp = { A, B, armed: true, cd: 0, uses: 0 };
+  const on = (q) => P.grounded && Math.abs(P.pos.x - q.x) < 0.85 && Math.abs(P.pos.z - q.z) < 0.85 && Math.abs(P.pos.y - q.top) < 0.35;
+  W.things.push({ update(dt) {
+    A.ring.position.y = 0.6 + Math.sin(W.time * 3) * 0.4; B.ring.position.y = 0.6 + Math.sin(W.time * 3 + 1.5) * 0.4;
+    tp.cd -= dt;
+    if (P.state === 'dead' || P.frozen) return;
+    const oa = on(A), ob = on(B);
+    if (!oa && !ob) tp.armed = true;
+    if (tp.armed && tp.cd <= 0 && (oa || ob)) {
+      const from = oa ? A : B, to = oa ? B : A;
+      burst(from.x, from.top + 1, from.z, c, 16, 5, 0.6);
+      P.pos.set(to.x, to.top + 0.02, to.z); P.vel.set(0, 0, 0);
+      cam.target.set(to.x, to.top + 1.4, to.z);
+      tp.armed = false; tp.cd = 0.5; tp.uses++;
+      Snd.S.warp(); ringFx(to.x, to.top, to.z, c, 3); burst(to.x, to.top + 1, to.z, 0xffffff, 16, 5, 0.6);
+    }
+  } });
+  return tp;
+}
+// Boost pad: land on it and it flings you on a fixed arc onto the target platform.
+function addLaunchPad(x, top, z, tx, ttop, tz, arc) {
+  const g = new THREE.Group();
+  const base = M(G.cyl8, 0x2b2f48, 0.95, 0.3, 0.95); base.position.y = 0.15; g.add(base);
+  const pad = new THREE.Mesh(G.cyl8, basic(0xffa020)); pad.scale.set(0.75, 0.32, 0.75); pad.position.y = 0.16; g.add(pad);
+  const arrow = new THREE.Mesh(G.cone6, basic(0xffffff)); arrow.scale.set(0.3, 0.5, 0.3); arrow.rotation.x = Math.PI / 2; arrow.position.set(0, 0.36, -0.2); g.add(arrow);
+  g.rotation.y = Math.atan2(-(tx - x), -(tz - z)) + Math.PI;
+  shadowy(g, true, true);
+  g.position.set(x, top, z); W.root.add(g);
+  const s = addSolid(x, top + 0.15, z, 0.9, 0.15, 0.9, 'launch', null);
+  s.launch = { x: tx, top: ttop, z: tz, arc: arc || 4 };
+  W.things.push({ update() { pad.material = basic(Math.floor(W.time * 4) % 2 ? 0xffa020 : 0xffd23f); } });
+  // dotted trail so you can see where it goes
+  for (let i = 1; i < 8; i++) {
+    const t = i / 8, d = new THREE.Mesh(G.sphereLo, basic(0xffd23f)); d.scale.setScalar(0.09);
+    const apexY = Math.max(ttop - top, 0) + (arc || 4);
+    d.position.set(lerp(x, tx, t), top + 0.6 + 4 * apexY * t * (1 - t) + (ttop - top) * t * t * 0.4, lerp(z, tz, t)); W.root.add(d);
+  }
+  return s;
+}
+function launchFrom(s) {
+  const L = s.launch;
+  const dx = L.x - P.pos.x, dz = L.z - P.pos.z, dy = L.top - P.pos.y;
+  const apex = Math.max(dy, 0) + L.arc;
+  const vy = Math.sqrt(2 * G_UP * apex);
+  const T = vy / G_UP + Math.sqrt(2 * (apex - dy) / G_DOWN);
+  P.vel.set(dx / T, vy, dz / T);
+  P.state = 'launch'; P.stateT = 0; P.grounded = false; P.ground = null; P.jumping = false; P.canDouble = false; P.coyote = 0; P.jumpBuf = 0;
+  P.facing = Math.atan2(dx, dz); P.squash = 1.4;
+  Snd.S.boost(); ringFx(P.pos.x, P.pos.y, P.pos.z, 0xffa020, 2.5); dust(P.pos.x, P.pos.y, P.pos.z, 8);
+}
+// ---------- 3.0 decor ----------
+function addPalm(x, top, z, s) {
+  s = s || 1;
+  const g = new THREE.Group();
+  for (let i = 0; i < 5; i++) { const seg = M(G.cyl8, i % 2 ? 0xa0703a : 0x8a5a2b, 0.2 * s - i * 0.015, 0.75 * s, 0.2 * s - i * 0.015); seg.position.set(i * i * 0.03 * s, (0.37 + i * 0.72) * s, 0); seg.rotation.z = -i * 0.06; g.add(seg); }
+  const crown = new THREE.Group(); crown.position.set(0.5 * s, 3.7 * s, 0); g.add(crown);
+  for (let i = 0; i < 7; i++) { const lf = M(G.cone6, i % 2 ? 0x3fbf4a : 0x2fa84a, 0.28 * s, 2.1 * s, 0.1 * s); lf.rotation.set(0, (i / 7) * TAU, 1.9); lf.position.set(Math.cos((i / 7) * TAU) * 0.9 * s, -0.2 * s, -Math.sin((i / 7) * TAU) * 0.9 * s); lf.rotation.order = 'YXZ'; crown.add(lf); }
+  for (let i = 0; i < 3; i++) { const cn = M(G.sphereLo, 0x6b3b1f, 0.17 * s); cn.position.set(Math.cos(i * 2.1) * 0.25 * s, -0.3 * s, Math.sin(i * 2.1) * 0.25 * s); crown.add(cn); }
+  shadowy(g, true, false);
+  g.position.set(x, top, z); g.rotation.y = (x * 7 + z * 3) % TAU; W.root.add(g);
+  addSolid(x, top + 1.5 * s, z, 0.25 * s, 1.5 * s, 0.25 * s, 'static', null).noCam = true;
+}
+function addStarfield(n) {
+  const r = mulberry(1234), pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const u = r() * 2 - 1, a = r() * TAU, c = Math.sqrt(1 - u * u);
+    pos[i * 3] = Math.cos(a) * c * 420; pos[i * 3 + 1] = Math.abs(u) * 420 * (r() < 0.8 ? 1 : -0.4); pos[i * 3 + 2] = Math.sin(a) * c * 420;
+  }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, fog: false, depthWrite: false }));
+  W.sky.add(pts);
+}
+function addPlanet(x, y, z, r, color, ringColor) {
+  const p = new THREE.Mesh(G.sphere, new THREE.MeshBasicMaterial({ color, fog: false })); p.scale.setScalar(r); p.position.set(x, y, z); W.sky.add(p);
+  if (ringColor) { const rg = new THREE.Mesh(G.torus, new THREE.MeshBasicMaterial({ color: ringColor, fog: false })); rg.scale.set(r * 1.7, r * 1.7, r * 2.2); rg.rotation.set(1.2, 0.3, 0); rg.position.copy(p.position); W.sky.add(rg); }
+  return p;
+}
+// ---------- 3.0 enemies (re-skins of existing behaviours so co-op puppets work unchanged) ----------
+function buildCrab() {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  const body = M(G.sphereLo, 0xff5a3a, 0.62, 0.34, 0.5); body.position.y = 0.42; b.add(body);
+  for (const sd of [-1, 1]) {
+    const st = M(G.cyl8, 0xff5a3a, 0.04, 0.3, 0.04); st.position.set(sd * 0.16, 0.8, 0.22); b.add(st);
+    const e = M(G.sphere, 0xffffff, 0.09); e.position.set(sd * 0.16, 0.98, 0.24); b.add(e);
+    const p = M(G.sphere, 0x1b1440, 0.05); p.position.set(sd * 0.16, 0.99, 0.31); b.add(p);
+    for (let i = 0; i < 3; i++) { const lg = M(G.cyl8, 0xd8402a, 0.04, 0.4, 0.04); lg.position.set(sd * 0.58, 0.2, -0.2 + i * 0.2); lg.rotation.z = sd * 0.9; b.add(lg); }
+  }
+  const mkClaw = (sd) => { const c = new THREE.Group(); c.position.set(sd * 0.55, 0.45, 0.25); const k = M(G.sphereLo, 0xff7a4a, 0.22, 0.17, 0.2); c.add(k); const k2 = M(G.cone6, 0xff7a4a, 0.08, 0.25, 0.08); k2.rotation.x = Math.PI / 2; k2.position.set(0, 0.08, 0.2); c.add(k2); b.add(c); return c; };
+  const fL = mkClaw(-1), fR = mkClaw(1);
+  shadowy(g, true, false);
+  return { root: g, body: b, fL, fR };
+}
+function buildAlien() {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  const body = M(G.sphereLo, 0x7dff6a, 0.5, 0.55, 0.5); body.position.y = 0.55; b.add(body);
+  const eye = M(G.sphere, 0xffffff, 0.22, 0.24, 0.12); eye.position.set(0, 0.7, 0.42); b.add(eye);
+  const pup = M(G.sphere, 0x1b1440, 0.1, 0.12, 0.06); pup.position.set(0, 0.7, 0.52); b.add(pup);
+  const ant = M(G.cyl8, 0x3fbf4a, 0.03, 0.4, 0.03); ant.position.y = 1.25; b.add(ant);
+  const tip = new THREE.Mesh(G.sphereLo, basic(0xff5ad8)); tip.scale.setScalar(0.09); tip.position.y = 1.47; b.add(tip);
+  const fL = M(G.sphereLo, 0x3fbf4a, 0.18, 0.1, 0.24); fL.position.set(-0.22, 0.08, 0.05); b.add(fL);
+  const fR = fL.clone(); fR.position.x = 0.22; b.add(fR);
+  shadowy(g, true, false);
+  return { root: g, body: b, fL, fR };
+}
+function buildUrchin(color, spikeColor) {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  const core = M(G.sphereLo, color || 0x6a2a9a, 0.5); core.position.y = 0.55; b.add(core);
+  const sm = mat(spikeColor || 0x2a0a4a);
+  for (let i = 0; i < 16; i++) {
+    const u = (i / 16) * 2 - 0.9, a = i * 2.4, c = Math.sqrt(Math.max(0, 1 - u * u));
+    const v = new THREE.Vector3(Math.cos(a) * c, u * 0.9 + 0.2, Math.sin(a) * c).normalize();
+    const s = new THREE.Mesh(G.cone6, sm); s.scale.set(0.08, 0.55, 0.08); s.position.set(v.x * 0.55, 0.55 + v.y * 0.55, v.z * 0.55);
+    s.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v); b.add(s);
+  }
+  eyesOn(b, 0.62, 0.45, 0.14, 0.1, true);
+  shadowy(g, true, false);
+  return { root: g, body: b };
+}
+function buildFlyer(kind) {
+  const g = new THREE.Group(); const b = new THREE.Group(); g.add(b);
+  let wL, wR;
+  if (kind === 'gull') {
+    const body = M(G.sphereLo, 0xffffff, 0.36, 0.34, 0.55); body.position.y = 0.45; b.add(body);
+    const beak = M(G.cone6, 0xffa020, 0.09, 0.3, 0.09); beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.5, 0.6); b.add(beak);
+    eyesOn(b, 0.6, 0.42, 0.13, 0.08, true);
+    const wm = mat(0xdde4ee);
+    wL = new THREE.Mesh(G.box, wm); wL.scale.set(0.8, 0.05, 0.34); wL.position.set(-0.6, 0.6, 0); b.add(wL);
+    wR = wL.clone(); wR.position.x = 0.6; b.add(wR);
+  } else {
+    const saucer = M(G.sphereLo, 0x9aa4c8, 0.62, 0.18, 0.62); saucer.position.y = 0.45; b.add(saucer);
+    const dome = new THREE.Mesh(G.sphereLo, mat(0x56f0ff, { emissive: 0x104050, transparent: true, opacity: 0.85 })); dome.scale.set(0.3, 0.28, 0.3); dome.position.y = 0.62; b.add(dome);
+    eyesOn(b, 0.66, 0.24, 0.09, 0.06, true);
+    wL = new THREE.Mesh(G.sphereLo, basic(0xffd23f)); wL.scale.setScalar(0.08); wL.position.set(-0.55, 0.42, 0); b.add(wL);
+    wR = wL.clone(); wR.position.x = 0.55; b.add(wR);
+  }
+  shadowy(g, true, false);
+  return { root: g, body: b, wL, wR };
+}
+function addCrab(x, top, z) { return makeEnemy('walker', x, top, z, buildCrab(), { r: 0.6, h: 1.0 }); }
+function addAlien(x, top, z) { return makeEnemy('walker', x, top, z, buildAlien(), { r: 0.55, h: 1.2 }); }
+function addUrchin(x, top, z, x2, z2) { return makeEnemy('spiky', x, top, z, buildUrchin(), { r: 0.62, h: 1.1, stompable: false, spinnable: false, a: new V3(x, top, z), b: new V3(x2, top, z2), toB: true }); }
+function addMine(x, top, z, x2, z2) { return makeEnemy('spiky', x, top, z, buildUrchin(0x3a3f58, 0xff3b5c), { r: 0.62, h: 1.1, stompable: false, spinnable: false, a: new V3(x, top, z), b: new V3(x2, top, z2), toB: true }); }
+function addFlyer(kind, x, y, z) {
+  const e = makeEnemy('bee', x, y, z, buildFlyer(kind), { r: 0.5, h: 0.95 });
+  const blob = new THREE.Mesh(G.circle, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }));
+  blob.scale.setScalar(0.45); W.root.add(blob); e.blob = blob;
+  return e;
+}
+function coastEnv(c) {
+  setupEnv(Object.assign({ top: 0x1e8fff, horizon: 0xbff4ff, bottom: 0x7fe0ff, fog: 0xbff4ff, fogNear: 90, fogFar: 300, hemiSky: 0xffffff, hemiGround: 0x5aa0a0, hemiI: 0.8, sunColor: 0xfff2d0, sunI: 0.95, amb: 0.22, sunSprite: 0xfff3b0 }, c || {}));
+  W.killY = -4.5;
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), mat(c && c.sea || 0x2fd0e0, { transparent: true, opacity: 0.88, roughness: 0.2, metalness: 0.1 }));
+  water.rotation.x = -Math.PI / 2; water.position.y = -1.2; W.root.add(water); W.water = water;
+  if (SHADOWS) water.receiveShadow = true;
+  const r = mulberry(17);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * TAU + r() * 0.3, d = 150 + r() * 80;
+    const isl = M(G.sphereLo, 0xffe3a6, 18 + r() * 14, 5 + r() * 4, 18 + r() * 14); isl.position.set(Math.cos(a) * d, -3, Math.sin(a) * d - 40); W.root.add(isl);
+    const pt = M(G.cone6, 0x2fa84a, 6, 14, 6); pt.position.set(isl.position.x, 6, isl.position.z); W.root.add(pt);
+  }
+  skyClouds(16, 35, 70, 70, 220, 21);
+  W.scenery = (dt, t) => { water.position.y = -1.2 + Math.sin(t * 0.9) * 0.06; };
+}
+function spaceEnv(c) {
+  setupEnv(Object.assign({ top: 0x05031a, horizon: 0x2a1a5a, bottom: 0x0a0820, fog: 0x1c1244, fogNear: 100, fogFar: 340, hemiSky: 0xd0d8ff, hemiGround: 0x403060, hemiI: 0.8, sunColor: 0xffffff, sunI: 0.95, amb: 0.26 }, c || {}));
+  W.killY = -16;
+  addStarfield(700);
+  addPlanet(-160, 120, -320, 60, 0xff8a5a, 0xffd0a0);
+  addPlanet(220, 60, -260, 22, 0x6ad0ff);
+  const r = mulberry(31);
+  const rocks = [];
+  for (let i = 0; i < 26; i++) {
+    const a = r() * TAU, d = 60 + r() * 140;
+    const m = M(G.dodeca, 0x6a6a80, 2 + r() * 5); m.position.set(Math.cos(a) * d, -30 + r() * 70, Math.sin(a) * d - 50); W.root.add(m); rocks.push(m);
+  }
+  W.scenery = (dt) => { for (let i = 0; i < rocks.length; i++) { rocks[i].rotation.x += dt * 0.1 * ((i % 3) + 1); rocks[i].rotation.y += dt * 0.07; } };
+}
+
+// =====================================================================
+// WORLD 7-1 — SUNNY SHORE
+// =====================================================================
+function buildShore() {
+  coastEnv();
+  addIsland(0, 0, 0, 14, 14, 'sand', 3, { bare: true });
+  addHint(-3, 0, 4, '<b>CORAL COAST!</b> Bounce on <b>jellyfish</b>, cross <b>sandbars</b> before the tide takes them, and ride <b>water spouts</b> up cliffs.', null, 3);
+  addPalm(5.6, 0, 5.6, 1); addPalm(5.4, 0, -5.4, 0.9); addPalm(-5.8, 0, 5.8, 1.1);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  addCrab(3, 0, -2);
+  // star 1: jellyfish bounce to the floating sand ledge
+  addJelly(-4, 0, -3.5, 0, 3, 0);
+  addHint(-1.5, 0, -1.5, 'Jump on the <b>JELLYFISH</b> to bounce way up!', null, 2);
+  addIsland(-4, 6, -8.6, 3, 3, 'sand', 1, { bare: true });
+  addItem('star', -4, 7.3, -8.6, { idx: 0 });
+  coinLine(-4, 3, -4.8, -4, 6, -7, 3);
+  // sandbars
+  addHint(2.5, 0, -5.6, '<b>SANDBARS</b> sink with the tide &mdash; they <b>shake</b> first. Cross while they are up!', null, 2.2);
+  addTide(0, 0, -10.5, 3, 3, 5, 3.2, 0);
+  addTide(0, 0, -14.5, 3, 3, 5, 3.2, -0.8);
+  coinLine(0, 1, -10.5, 0, 1, -14.5, 2);
+  // island B
+  addIsland(0, 0, -24, 14, 14, 'sand', 3, { bare: true });
+  addCheckpoint(-1.6, 0, -18.6, 0);
+  addCrab(-3, 0, -26); addCrab(3, 0, -28);
+  addQBlock(2.5, 3.4, -21.5, 'coins');
+  addPalm(-5.5, 0, -29.5, 1); addPalm(5.5, 0, -18.5, 0.9);
+  // star 2: islet + jellyfish to the coral perch
+  addIsland(10.5, 0, -24, 3, 3, 'sand', 2, { bare: true });
+  addJelly(10.5, 0, -24, 0, 3, 0, 0x7ad8ff);
+  addBox(10.5, 5.4, -28.6, 3, 3, 0.8, 'coral');
+  addItem('star', 10.5, 6.7, -28.6, { idx: 1 });
+  // water spout up the cliff
+  addIsland(0, 0, -33.5, 4, 4, 'sand', 2, { bare: true });
+  addGeyser(0, 0, -33.5, 6.6, 4, 4, 0);
+  addHint(-2.6, 0, -30, 'Stand in the <b>WATER SPOUT</b> to ride it up, then steer onto the cliff!', null, 2.2);
+  coinLine(0, 2.5, -33.5, 0, 6.5, -33.5, 3);
+  // island C
+  addIsland(0, 5, -43, 12, 10, 'sand', 3, { bare: true });
+  addCheckpoint(-1.6, 5, -39.2, 0);
+  addUrchin(-4, 5, -45.5, 4, -45.5);
+  addHint(2.4, 5, -39.4, 'Spiny <b>sea urchins</b> can\'t be stomped &mdash; jump over them!', null, 2);
+  addCrab(3, 5, -41.5);
+  coinRing(0, 5.9, -43, 2, 6);
+  // star 3: hidden sand steps to the west
+  addSecretBlock(-8.4, 5.4, -44, 2.2, 2.2, 'coral');
+  addSecretBlock(-11.4, 5.8, -45.5, 2.2, 2.2, 'coral');
+  addBox(-14.6, 6.2, -46, 3, 3, 1, 'coral');
+  addItem('star', -14.6, 7.5, -46, { idx: 2 });
+  // turtle ferry to the goal island
+  const turtle = addMover(0, 5, -51, 3, 3, [0, 0, -4], 5, 0, 'reef');
+  const shell = M(new THREE.SphereGeometry(1, 10, 6, 0, TAU, 0, Math.PI / 2), 0x3a8a4a, 1.3, 0.5, 1.3); shell.position.y = 0.3; turtle.mesh.add(shell);
+  const head = M(G.sphereLo, 0x7ad070, 0.35); head.position.set(0, 0.2, -1.6); turtle.mesh.add(head);
+  addHint(2, 5, -46.5, 'Hop on the <b>turtle</b> to ferry across!', null, 2);
+  addIsland(0, 5, -62, 10, 8, 'sand', 3, { bare: true });
+  addFlyer('gull', 3.5, 7.6, -60);
+  addBox(0, 5.8, -64, 4, 4, 0.8, 'sand');
+  addGoal(0, 5.8, -64, 'flag');
+  addPalm(-3.8, 5, -64.5, 1);
+  W.titleFocus = new V3(0, 1, -10);
+}
+// =====================================================================
+// WORLD 7-2 — TIDE POOLS
+// =====================================================================
+function buildTidePools() {
+  coastEnv({ top: 0x2a7aff, horizon: 0xffe0c0, bottom: 0x8ad8ff, fog: 0xffe6cc, sunColor: 0xffe0b0, sea: 0x27c4d8 });
+  addIsland(0, 0, 0, 14, 14, 'sand', 3, { bare: true });
+  addHint(-3, 0, 4, '<b>TIDE POOLS:</b> Spouts here come and go. <b>Bubbles</b> mean one is about to erupt!', null, 3);
+  addPalm(5.6, 0, 5.4, 1); addPalm(-5.6, 0, -5.4, 0.9);
+  addCrab(2.5, 0, -3);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  addTide(0, 0, -10, 3, 3, 4.5, 2.6, 0);
+  addTide(0, 0, -14.5, 3, 3, 4.5, 2.6, -1.0);
+  addIsland(0, 0, -19, 4, 4, 'sand', 2, { bare: true });
+  addCheckpoint(-1.2, 0, -17.8, 0);
+  addGeyser(0, 0, -19.6, 7, 4.5, 2.6, 0);
+  addHint(1.4, 0, -17.6, 'Wait for the spout to erupt, then ride it up!', null, 1.6);
+  // island B: crate puzzle
+  addIsland(0, 4, -30, 16, 14, 'sand', 3, { bare: true });
+  addCheckpoint(-2, 4, -24.4, 0);
+  addHint(2.5, 4, -24.4, '<b>PUZZLE:</b> Push both <b>crates</b> onto the yellow switches to open the coral gate. (Blue pad = reset.)', null, 2.6);
+  addBox(-4.75, 8, -36.5, 6.5, 1, 4, 'coral'); addBox(4.75, 8, -36.5, 6.5, 1, 4, 'coral');
+  const gate = addGate(0, 8, -36.5, 3, 1, 4);
+  const cA = addPushBlock(-4.5, 4, -27), cB = addPushBlock(5, 4, -27);
+  const sA = addPressureSwitch(-4.5, 4, -33), sB = addPressureSwitch(2, 4, -33);
+  addResetPad(0, 4, -25.2, [cA, cB]);
+  const onSw = () => { const n = (sA.pressed ? 1 : 0) + (sB.pressed ? 1 : 0); if (n < 2) showToast('Switch pressed! <b>' + n + ' / 2</b>', 2.5); };
+  sA.onPress = onSw; sB.onPress = onSw;
+  W.things.push({ update() { if (!gate.opening && sA.pressed && sB.pressed) { gate.open(); showToast('<b>THE CORAL GATE IS OPEN!</b>', 3); Snd.S.solve(); } } });
+  addCrab(-1, 4, -30);
+  // star 1: jelly to the coral pillar
+  addJelly(-6.8, 4, -25, 0, 3, 0);
+  addBox(-6.8, 9.2, -29.6, 2, 2.6, 5.2, 'coral');
+  addItem('star', -6.8, 10.5, -29.6, { idx: 0 });
+  // sandbars over the pools
+  addTide(0, 0.5, -40, 3, 3, 4.5, 2.8, 0);
+  addTide(0, 0.5, -44, 3, 3, 4.5, 2.8, -0.9);
+  addTide(0, 0.5, -48, 3, 3, 4.5, 2.8, -1.8);
+  coinLine(0, 1.5, -40, 0, 1.5, -48, 3);
+  // star 2: coral rock beside the middle sandbar
+  addBox(5.5, 1.5, -44, 2.6, 2.6, 2, 'coral');
+  addItem('star', 5.5, 2.8, -44, { idx: 1 });
+  // island C
+  addIsland(0, 1, -56, 14, 10, 'sand', 3, { bare: true });
+  addCheckpoint(-2, 1, -52.4, 0);
+  addFlyer('gull', -4, 3.6, -57); addFlyer('gull', 4.5, 3.6, -55);
+  addHint(2.3, 1, -52.2, '<b>Seagulls</b> swoop at you &mdash; stomp them or spin them away!', null, 2);
+  // star 3: hidden steps up to a high perch
+  addSecretBlock(-4.5, 3.2, -59.5, 2.2, 2.2, 'coral');
+  addSecretBlock(-7.5, 5.4, -61.5, 2.2, 2.2, 'coral');
+  addBox(-10.5, 7.6, -63, 3, 3, 1, 'coral');
+  addItem('star', -10.5, 8.9, -63, { idx: 2 });
+  // two timed spouts up to the goal cliff
+  addGeyser(3, 1, -59.5, 6, 4, 2.4, 1);
+  addBox(3, 6, -64, 3, 3, 1, 'coral');
+  addGeyser(3, 6, -64, 6.5, 4, 2.4, 3);
+  addIsland(0, 10, -73, 10, 10, 'sand', 3, { bare: true });
+  addUrchin(-3, 10, -70.5, 3, -70.5);
+  addBox(0, 10.8, -75.5, 4, 4, 0.8, 'sand');
+  addGoal(0, 10.8, -75.5, 'flag');
+  addPalm(3.5, 10, -76.5, 1);
+  W.titleFocus = new V3(0, 1, -10);
+}
+// =====================================================================
+// WORLD 7-3 — SUNKEN REEF
+// =====================================================================
+function buildReef() {
+  coastEnv({ top: 0x3a2a8a, horizon: 0xff9a7a, bottom: 0x40a0c0, fog: 0xffb090, sunColor: 0xffc890, sunI: 0.85, sunSprite: 0xff9050, sea: 0x1aa8b8, hemiGround: 0x406a80 });
+  addIsland(0, 0, 0, 14, 14, 'reef', 3, { bare: true });
+  addHint(-3, 0, 4, '<b>SUNKEN REEF:</b> The jellyfish here <b>bob up and down</b>. Bounce from one to the next!', null, 3);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  addCrab(3, 0, -2.5);
+  addJelly(0, 0, -10.5, 0.5, 3, 0);
+  addJelly(0, 0, -16, 0.5, 3, 0.33, 0x7ad8ff);
+  addJelly(0, 0, -21.5, 0.5, 3, 0.66);
+  addItem('star', 0, 6.6, -16, { idx: 0 });
+  // island B: coral lamp lever puzzle
+  addIsland(0, 0, -30, 12, 10, 'reef', 3, { bare: true });
+  addCheckpoint(-1.6, 0, -26, 0);
+  addHint(1.6, 0, -26, '<b>CORAL LAMPS:</b> each pad flips some lamps. Light <b>all three</b> to open the gate!', null, 2.2);
+  addBox(-3.75, 6, -34.5, 4.5, 1, 6, 'coral'); addBox(3.75, 6, -34.5, 4.5, 1, 6, 'coral');
+  addBox(0, 6, -34.5, 3, 1, 1, 'coral');
+  const gate = addGate(0, 5, -34.5, 3, 1, 5);
+  W.levers = addLeverPuzzle({
+    top: 0, init: [0, 0, 0], msg: '<b>ALL LAMPS LIT!</b> The reef gate opens!',
+    lamps: [[-3.5, 6, -34.6, 1.2], [0, 6, -34.6, 1.2], [3.5, 6, -34.6, 1.2]],
+    levers: [[-3.5, -30.5, [0, 1], 'A'], [0, -29, [1, 2], 'B'], [3.5, -30.5, [0], 'C']],
+    onSolve: () => gate.open(),
+  });
+  // sideways turtles
+  const t1 = addMover(-2, 0, -38.5, 3, 3, [4, 0, 0], 4.5, 0, 'reef');
+  const t2 = addMover(2, 0, -43, 3, 3, [-4, 0, 0], 4.5, 0, 'reef');
+  for (const t of [t1, t2]) { const sh = M(new THREE.SphereGeometry(1, 10, 6, 0, TAU, 0, Math.PI / 2), 0x3a8a4a, 1.3, 0.5, 1.3); sh.position.y = 0.3; t.mesh.add(sh); }
+  // island C
+  addIsland(0, 0, -51, 12, 8, 'reef', 3, { bare: true });
+  addCheckpoint(-1.6, 0, -47.8, 0);
+  addUrchin(-4, 0, -53, 4, -53);
+  addFlyer('gull', 0, 3, -50);
+  // star 2: ride the offshore spout
+  addBox(9, 0.5, -51, 2.4, 2.4, 1, 'coral');
+  addGeyser(9, 0.5, -51, 7, 5, 2.5, 0);
+  addItem('star', 9, 6.6, -51, { idx: 1 });
+  // final tide + spout
+  addTide(0, 0, -58.5, 3, 3, 4, 2.3, 0);
+  addTide(0, 0, -62.5, 3, 3, 4, 2.3, -0.8);
+  addIsland(0, 0, -67.5, 4, 4, 'reef', 2, { bare: true });
+  addCheckpoint(-1.3, 0, -66.3, 0);
+  addGeyser(0.3, 0, -68.3, 7.5, 4, 2.2, 0);
+  addIsland(0, 5, -78, 12, 12, 'reef', 3, { bare: true });
+  addCrab(-3, 5, -75); addUrchin(4.5, 5, -76, 4.5, -82);
+  // star 3: jelly to the coral tower
+  addJelly(-4, 5, -75.5, 0, 3, 0);
+  addBox(-4, 11, -79.6, 2.6, 2.6, 6, 'coral');
+  addItem('star', -4, 12.3, -79.6, { idx: 2 });
+  addBox(1, 6, -80.5, 4, 4, 1, 'gold');
+  addGoal(1, 6, -80.5, 'star');
+  W.titleFocus = new V3(0, 1, -10);
+}
+// =====================================================================
+// WORLD 8-1 — MOON BASE
+// =====================================================================
+function buildMoon() {
+  spaceEnv();
+  addIsland(0, 0, 0, 14, 14, 'moon', 3, { bare: true });
+  addHint(-3, 0, 4, '<b>STARLIGHT STATION!</b> Inside the purple fields gravity is <b>LOW</b> &mdash; you jump much higher and farther.', null, 3);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  addAlien(3, 0, -3);
+  addLowGrav(1.5, -14, 5.5, 8, -12, 16, 0.42);
+  addBox(0, 1, -14, 3, 3, 1, 'moon');
+  addBox(5, 7, -14, 2.5, 2.5, 0.8, 'neon');
+  addItem('star', 5, 8.3, -14, { idx: 0 });
+  coinLine(0, 3.5, -9, 0, 3.5, -19, 4);
+  // island B: boost pads
+  addIsland(0, 0, -27, 12, 12, 'moon', 3, { bare: true });
+  addCheckpoint(-1.6, 0, -22.4, 0);
+  addHint(1.6, 0, -22.4, '<b>BOOST PADS</b> fling you along the dotted path. Just step on!', null, 2.2);
+  addAlien(3.5, 0, -24); addAlien(-3.5, 0, -31);
+  addLaunchPad(0, 0, -30.5, 0, 3, -47.5, 4);
+  // star 2: side pad to a far platform and back
+  addLaunchPad(4.5, 0, -31.5, 16, 4, -32.5, 3);
+  addBox(16, 4, -31, 4, 5, 1, 'neon');
+  addItem('star', 16, 5.3, -32.5, { idx: 1 });
+  addLaunchPad(16, 4, -29.5, 2.5, 0, -26, 3);
+  // island C
+  addIsland(0, 3, -48, 12, 8, 'moon', 3, { bare: true });
+  addCheckpoint(-1.6, 3, -45, 0);
+  addMine(-4, 3, -50.5, 4, -50.5);
+  addFlyer('ufo', 3.5, 5.6, -46);
+  addHint(2.4, 3, -44.8, 'Red-spiked <b>mines</b> hurt to touch. <b>UFOs</b> can be stomped!', null, 2);
+  // low gravity up to the goal
+  addLowGrav(-1, -57, 6.5, 5.5, 0, 22, 0.42);
+  addBox(0, 6, -56.5, 3, 3, 1, 'moon');
+  addBox(-4, 14, -58.5, 2.5, 2.5, 0.8, 'neon');
+  addItem('star', -4, 15.3, -58.5, { idx: 2 });
+  addIsland(0, 9, -66, 10, 10, 'moon', 3, { bare: true });
+  addAlien(2.5, 9, -64);
+  addBox(0, 9.8, -68.5, 4, 4, 0.8, 'hull');
+  addGoal(0, 9.8, -68.5, 'flag');
+  W.titleFocus = new V3(0, 1, -10);
+}
+// =====================================================================
+// WORLD 8-2 — LASER LABS
+// =====================================================================
+function buildLabs() {
+  spaceEnv({ horizon: 0x1a2a5a, fog: 0x14204a });
+  addIsland(0, 0, 0, 14, 14, 'hull', 3, { bare: true });
+  addHint(-3, 0, 4, '<b>LASER LABS:</b> Laser fences blink. They <b>flicker</b> just before switching on &mdash; dash through while they are off!', null, 3);
+  addRobot(3, 0, -2, 3, -5.5, 0);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  addBox(0, 0, -15, 5, 16, 1, 'hull');
+  addLaser(0, 0, -11, 5, 'x', 1.4, 2.2, 0);
+  addLaser(0, 0, -17, 5, 'x', 1.4, 2.2, -1.2);
+  coinLine(0, 0.9, -8.5, 0, 0.9, -21, 5);
+  // island B: teleporters
+  addIsland(0, 0, -29, 14, 12, 'hull', 3, { bare: true });
+  addCheckpoint(-1.6, 0, -24.4, 0);
+  addHint(1.8, 0, -24.4, '<b>TELEPORTERS:</b> step on a glowing pad to warp. Step off and back on to return.', null, 2.2);
+  addTeleporter(3.5, 0, -32, 0, 6, -43.5, 0x56f0ff);
+  // star 1: secret teleporter vault
+  addTeleporter(-4.5, 0, -27, -17, 4, -29, 0xff7ad8);
+  addBox(-17, 4, -29.5, 5, 5, 1, 'neon');
+  addItem('star', -17, 5.3, -31, { idx: 0 });
+  // island C: 4-light lever puzzle
+  addIsland(0, 6, -46, 14, 10, 'hull', 3, { bare: true });
+  addCheckpoint(-4.5, 6, -42.6, 0);
+  addHint(4.5, 6, -42.6, '<b>POWER CELLS:</b> light all <b>four</b>. One pad is a decoy &mdash; experiment!', null, 2.2);
+  addBox(-4.25, 11, -50.5, 5.5, 1, 5, 'hull'); addBox(4.25, 11, -50.5, 5.5, 1, 5, 'hull');
+  addBox(0, 11, -50.5, 3, 1, 1, 'hull');
+  const gate = addGate(0, 10, -50.5, 3, 1, 4);
+  W.levers = addLeverPuzzle({
+    top: 6, init: [0, 0, 0, 0], msg: '<b>POWER RESTORED!</b> The lab door slides open!',
+    lamps: [[-5.5, 11, -50.6, 1.2], [-2.6, 11, -50.6, 1.2], [2.6, 11, -50.6, 1.2], [5.5, 11, -50.6, 1.2]],
+    levers: [[-4, -46.5, [0, 1], 'A'], [0, -47, [1, 2], 'B'], [4, -46.5, [2, 3], 'C']],
+    onSolve: () => gate.open(),
+  });
+  // laser bridge
+  addBox(0, 6, -58, 4, 14, 1, 'neon');
+  addLaser(0, 6, -54.5, 4, 'x', 1.3, 2.3, 0);
+  addLaser(0, 6, -58.5, 4, 'x', 1.3, 2.3, -0.9);
+  addLaser(0, 6, -62.5, 4, 'x', 1.3, 2.3, -1.8);
+  // star 2: ledge beside the bridge
+  addBox(5, 7, -58.5, 2, 2, 0.8, 'neon');
+  addItem('star', 5, 8.3, -58.5, { idx: 1 });
+  // island D
+  addIsland(0, 6, -71, 12, 10, 'hull', 3, { bare: true });
+  addCheckpoint(-1.6, 6, -66.8, 0);
+  addTurret(-4, 6, -74.5);
+  addFlyer('ufo', 3, 8.6, -69);
+  // star 3: hidden steps
+  addSecretBlock(4.2, 8.2, -73.5, 2.2, 2.2, 'neon');
+  addSecretBlock(7.4, 10.4, -75, 2.2, 2.2, 'neon');
+  addBox(10.6, 12.6, -76.5, 3, 3, 1, 'neon');
+  addItem('star', 10.6, 13.9, -76.5, { idx: 2 });
+  addBox(0, 6.8, -74.5, 3, 3, 0.8, 'hull');
+  addGoal(0, 6.8, -74.5, 'flag');
+  W.titleFocus = new V3(0, 1, -10);
+}
+// =====================================================================
+// WORLD 8-3 — STAR CORE
+// =====================================================================
+function buildCore() {
+  spaceEnv({ horizon: 0x4a1a5a, fog: 0x2a1040, top: 0x0a0220 });
+  addIsland(0, 0, 0, 14, 14, 'hull', 3, { bare: true });
+  addHint(-3, 0, 4, '<b>STAR CORE:</b> the final stretch! Low gravity, crates, boost pads and lasers &mdash; take it one checkpoint at a time.', null, 3);
+  coinLine(0, 0.9, 3, 0, 0.9, -5, 5);
+  // low-gravity asteroid hop
+  addLowGrav(-1, -16, 8, 10, -12, 22, 0.42);
+  addBox(-2, 1.5, -12, 3, 3, 1, 'moon');
+  addBox(2, 3, -18, 3, 3, 1, 'moon');
+  addBox(-6, 10, -19, 2.5, 2.5, 0.8, 'neon');
+  addItem('star', -6, 11.3, -19, { idx: 0 });
+  coinLine(-2, 2.5, -12, 2, 4, -18, 3);
+  // island B: crates
+  addIsland(0, 2, -29, 12, 10, 'hull', 3, { bare: true });
+  addCheckpoint(-1.6, 2, -25, 0);
+  addHint(1.6, 2, -25, '<b>PUZZLE:</b> both crates onto both switches. (Blue pad = reset.)', null, 2);
+  addBox(-3.75, 6, -33.5, 4.5, 1, 4, 'hull'); addBox(3.75, 6, -33.5, 4.5, 1, 4, 'hull');
+  const gate = addGate(0, 6, -33.5, 3, 1, 4);
+  const cA = addPushBlock(-3.5, 2, -27.5), cB = addPushBlock(3.5, 2, -27.5);
+  const sA = addPressureSwitch(-3.5, 2, -31.4), sB = addPressureSwitch(3.5, 2, -31.4);
+  addResetPad(0, 2, -26.8, [cA, cB]);
+  const onSw = () => { const n = (sA.pressed ? 1 : 0) + (sB.pressed ? 1 : 0); if (n < 2) showToast('Switch pressed! <b>' + n + ' / 2</b>', 2.5); };
+  sA.onPress = onSw; sB.onPress = onSw;
+  W.things.push({ update() { if (!gate.opening && sA.pressed && sB.pressed) { gate.open(); showToast('<b>THE CORE DOOR IS OPEN!</b>', 3); Snd.S.solve(); } } });
+  // boost to island C
+  addBox(0, 2, -36, 4, 4, 1, 'hull');
+  addLaunchPad(0, 2, -36.5, 0, 5, -51, 4);
+  // island C: laser sweep + vault teleporter
+  addIsland(0, 5, -54, 12, 10, 'hull', 3, { bare: true });
+  addCheckpoint(-1.6, 5, -50.4, 0);
+  addLaser(0, 5, -54.5, 12, 'x', 1.5, 2.2, 0);
+  addFlyer('ufo', 3, 7.5, -57);
+  addTeleporter(-4.5, 5, -51.5, -17, 8, -54, 0xff7ad8);
+  addBox(-17, 8, -54.5, 5, 5, 1, 'neon');
+  addItem('star', -17, 9.3, -56, { idx: 1 });
+  // final low-gravity climb
+  addLowGrav(0, -66, 7, 7, 2, 26, 0.42);
+  addMover(0, 5, -62.5, 3, 3, [0, 4, 0], 4, 0, 'neon');
+  addBox(0, 10, -68, 3, 3, 1, 'moon');
+  addBox(5, 16, -70, 2.5, 2.5, 0.8, 'neon');
+  addItem('star', 5, 17.3, -70, { idx: 2 });
+  addIsland(0, 12, -78, 12, 9, 'gold', 3, { bare: true });
+  addCheckpoint(-1.6, 12, -74.6, 0);
+  addRobot(-3.5, 12, -79, 3.5, -79, 0.8);
+  addFirebar(3.5, 12.8, -77, 3, 1.4, 0);
+  addBox(0, 13, -81, 4, 3, 1, 'gold');
+  addGoal(0, 13, -81, 'star');
+  W.titleFocus = new V3(0, 1, -10);
+}
+
 const LEVELS = [
-  { name: 'GROK MEADOWS', sub: 'WORLD 1', build: buildMeadows, start: [0, 0, 8], blurb: 'Crate puzzle · key & cage' },
-  { name: 'SKY ISLANDS', sub: 'WORLD 2', build: buildSky, start: [0, 0, 4], blurb: 'Color switches · memory pads' },
-  { name: 'LAVA CASTLE', sub: 'WORLD 3', build: buildLava, start: [0, 0, 5], blurb: 'Lava bridge · locked castle' },
-  { name: 'FROSTBITE PEAKS', sub: 'WORLD 4', build: buildFrost, start: [0, 0, 5], blurb: 'Sliding ice-crate puzzle · icicles · snowmen', isNew: true },
-  { name: 'GHOST MANOR', sub: 'WORLD 5', build: buildManor, start: [0, 0, 5], blurb: 'Candle puzzle · phantom floors · shy ghosts', isNew: true },
-  { name: 'CLOCKWORK FACTORY', sub: 'WORLD 6', build: buildFactory, start: [0, 0, 5], blurb: 'Lever-light puzzle · gears · conveyors · robots', isNew: true },
+  { name: 'GROK MEADOWS', sub: 'WORLD 1', world: 1, build: buildMeadows, start: [0, 0, 8], blurb: 'Crate puzzle · key & cage' },
+  { name: 'SKY ISLANDS', sub: 'WORLD 2', world: 2, build: buildSky, start: [0, 0, 4], blurb: 'Color switches · memory pads' },
+  { name: 'LAVA CASTLE', sub: 'WORLD 3', world: 3, build: buildLava, start: [0, 0, 5], blurb: 'Lava bridge · locked castle' },
+  { name: 'FROSTBITE PEAKS', sub: 'WORLD 4', world: 4, build: buildFrost, start: [0, 0, 5], blurb: 'Sliding ice-crate puzzle · icicles · snowmen' },
+  { name: 'GHOST MANOR', sub: 'WORLD 5', world: 5, build: buildManor, start: [0, 0, 5], blurb: 'Candle puzzle · phantom floors · shy ghosts' },
+  { name: 'CLOCKWORK FACTORY', sub: 'WORLD 6', world: 6, build: buildFactory, start: [0, 0, 5], blurb: 'Lever-light puzzle · gears · conveyors · robots' },
+  { name: 'SUNNY SHORE', sub: 'WORLD 7-1', world: 7, worldName: 'CORAL COAST', song: 6, build: buildShore, start: [0, 0, 5], blurb: 'Jellyfish bounces · tide sandbars · water spout', isNew: true },
+  { name: 'TIDE POOLS', sub: 'WORLD 7-2', world: 7, worldName: 'CORAL COAST', song: 6, build: buildTidePools, start: [0, 0, 5], blurb: 'Timed spouts · shell-crate puzzle · seagulls', isNew: true },
+  { name: 'SUNKEN REEF', sub: 'WORLD 7-3', world: 7, worldName: 'CORAL COAST', song: 6, build: buildReef, start: [0, 0, 5], blurb: 'Bobbing jellies · coral lamps · turtle ferries', isNew: true },
+  { name: 'MOON BASE', sub: 'WORLD 8-1', world: 8, worldName: 'STARLIGHT STATION', song: 7, build: buildMoon, start: [0, 0, 5], blurb: 'Low gravity · boost pads · UFOs', isNew: true },
+  { name: 'LASER LABS', sub: 'WORLD 8-2', world: 8, worldName: 'STARLIGHT STATION', song: 7, build: buildLabs, start: [0, 0, 5], blurb: 'Laser fences · teleporters · power-cell puzzle', isNew: true },
+  { name: 'STAR CORE', sub: 'WORLD 8-3', world: 8, worldName: 'STARLIGHT STATION', song: 7, build: buildCore, start: [0, 0, 5], blurb: 'Everything at once · the grand finale', isNew: true },
 ];
+function songOf(i) { return LEVELS[i] && LEVELS[i].song !== undefined ? LEVELS[i].song : i; }
+// 3.0: worlds 7 & 8 have three levels each; the map shows one node per world
+const WORLDS = [];
+LEVELS.forEach((L, i) => { (WORLDS[L.world - 1] = WORLDS[L.world - 1] || []).push(i); });
 function loadLevel(i) {
   clearWorld();
   decoRand = mulberry(7 + i * 13);
@@ -3523,10 +4219,11 @@ function setPlayingUI(on) {
   document.body.classList.toggle('title-mode', !on);
 }
 // ---- 2.0 world map ----
-const MAP_POS = [[9, 74], [25, 34], [41, 70], [58, 30], [74, 68], [90, 30]];
-const MAP_COLORS = ['#3fbf46', '#9b6bff', '#e0502c', '#38b6ff', '#7a4ad8', '#d08a2a'];
+const MAP_POS = [[6, 74], [19, 32], [32, 70], [45, 30], [58, 70], [71, 30], [83, 72], [94, 32]];
+const MAP_COLORS = ['#3fbf46', '#9b6bff', '#e0502c', '#38b6ff', '#7a4ad8', '#d08a2a', '#14b8a6', '#3a3f9a'];
 let mapSel = 0;
-function totalStars() { return save.stars.reduce((a, s) => a + s.reduce((x, y) => x + y, 0), 0); }
+function totalStars() { return save.stars.slice(0, LEVELS.length).reduce((a, s) => a + s.reduce((x, y) => x + y, 0), 0); }
+function starsHtml(got, n) { return '&#9733;'.repeat(got) + '<span class="no">' + '&#9733;'.repeat(n - got) + '</span>'; }
 function renderMap() {
   const wrap = $('world-map');
   wrap.innerHTML = '';
@@ -3542,29 +4239,47 @@ function renderMap() {
   });
   path.setAttribute('d', d); svg.appendChild(path);
   wrap.appendChild(svg);
-  LEVELS.forEach((L, i) => {
+  const selW = LEVELS[mapSel].world - 1;
+  WORLDS.forEach((lv, w) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'map-node' + (i === mapSel ? ' sel' : '') + (save.cleared[i] ? ' cleared' : '');
-    b.style.left = MAP_POS[i][0] + '%'; b.style.top = MAP_POS[i][1] + '%';
-    b.style.setProperty('--nc', MAP_COLORS[i]);
-    const got = save.stars[i].reduce((a, x) => a + x, 0);
-    b.innerHTML = '<span class="num">' + (i + 1) + '</span><span class="ms">' + '&#9733;'.repeat(got) + '<span class="no">' + '&#9733;'.repeat(3 - got) + '</span></span>' +
-      (L.isNew && !save.cleared[i] ? '<span class="new">NEW</span>' : '') + (save.cleared[i] ? '<span class="ok">&#10004;</span>' : '');
-    b.setAttribute('aria-label', L.sub + ' ' + L.name);
+    const allClear = lv.every((i) => save.cleared[i]);
+    b.className = 'map-node' + (w === selW ? ' sel' : '') + (allClear ? ' cleared' : '');
+    b.style.left = MAP_POS[w][0] + '%'; b.style.top = MAP_POS[w][1] + '%';
+    b.style.setProperty('--nc', MAP_COLORS[w]);
+    const got = lv.reduce((a, i) => a + save.stars[i].reduce((x, y) => x + y, 0), 0);
+    const L0 = LEVELS[lv[0]];
+    b.innerHTML = '<span class="num">' + (w + 1) + '</span><span class="ms">' + (lv.length > 1 ? '&#9733;' + got + '/' + lv.length * 3 : starsHtml(got, 3)) + '</span>' +
+      (L0.isNew && !allClear ? '<span class="new">NEW</span>' : '') + (allClear ? '<span class="ok">&#10004;</span>' : '');
+    b.setAttribute('aria-label', 'WORLD ' + (w + 1) + ' ' + (L0.worldName || L0.name));
     b.addEventListener('click', () => {
       Snd.init(); Snd.S.click();
-      if (mapSel === i) { playFromMap(); return; }
-      mapSel = i; renderMap();
+      if (selW === w) { playFromMap(); return; }
+      const f = lv.find((i) => !save.cleared[i]);
+      mapSel = f === undefined ? lv[0] : f; renderMap();
     });
     wrap.appendChild(b);
   });
   const hero = document.createElement('div'); hero.className = 'map-hero';
-  hero.style.left = MAP_POS[mapSel][0] + '%'; hero.style.top = MAP_POS[mapSel][1] + '%';
+  hero.style.left = MAP_POS[selW][0] + '%'; hero.style.top = MAP_POS[selW][1] + '%';
   wrap.appendChild(hero);
   const L = LEVELS[mapSel];
   $('map-name').textContent = L.sub + ' \u00b7 ' + L.name;
-  $('map-blurb').textContent = L.blurb;
+  $('map-blurb').textContent = (L.worldName ? L.worldName + ' \u2014 ' : '') + L.blurb;
+  let chips = $('map-levels');
+  if (!chips) { chips = document.createElement('div'); chips.id = 'map-levels'; $('map-stars').parentNode.insertBefore(chips, $('map-stars')); }
+  chips.innerHTML = '';
+  const lv = WORLDS[selW];
+  chips.classList.toggle('hidden', lv.length < 2);
+  if (lv.length > 1) lv.forEach((i, k) => {
+    const c = document.createElement('button'); c.type = 'button';
+    c.className = 'lvl-chip' + (i === mapSel ? ' sel' : '') + (save.cleared[i] ? ' cleared' : '');
+    const g = save.stars[i].reduce((a, x) => a + x, 0);
+    c.innerHTML = (selW + 1) + '-' + (k + 1) + ' <small>' + starsHtml(g, 3) + '</small>';
+    c.setAttribute('aria-label', LEVELS[i].sub + ' ' + LEVELS[i].name);
+    c.addEventListener('click', () => { Snd.init(); Snd.S.click(); if (mapSel === i) { playFromMap(); return; } mapSel = i; renderMap(); });
+    chips.appendChild(c);
+  });
   const got = save.stars[mapSel];
   $('map-stars').innerHTML = got.map((s) => (s ? '<span class="got">&#9733;</span>' : '<span class="no">&#9733;</span>')).join('') +
     (save.bestTime[mapSel] ? ' <span class="bt">best ' + fmtTime(save.bestTime[mapSel]) + '</span>' : '');
@@ -3645,7 +4360,7 @@ function showComplete() {
   rows.push(['All-time stars', allStars + ' / ' + (LEVELS.length * 3)]);
   if (NET.on) netCompleteRows(rows);
   $('complete-stats').innerHTML = rows.map((r) => '<div>' + r[0] + '</div><div>' + r[1] + '</div>').join('');
-  $('next-btn').textContent = last ? 'WORLD MAP' : 'NEXT WORLD \u25b6';
+  $('next-btn').textContent = last ? 'WORLD MAP' : (LEVELS[curLevel + 1].world === LEVELS[curLevel].world ? 'NEXT LEVEL \u25b6' : 'NEXT WORLD \u25b6');
   showCard('complete-card');
   renderLevelSelect();
   netCompleteUI();
@@ -4666,6 +5381,8 @@ function netDebug() {
 const TEAM_ZONES = [
   { e: -10, s: 'grass', w: 'stone' }, { e: -7, s: 'grass', w: 'stone' }, { e: -7, s: 'castle', w: 'castle' },
   { e: -8, s: 'snow', w: 'ice' }, { e: -8, s: 'grave', w: 'manor' }, { e: -7, s: 'metal', w: 'brass' },
+  { e: -7, s: 'sand', w: 'coral' }, { e: -7, s: 'sand', w: 'coral' }, { e: -7, s: 'reef', w: 'coral' },
+  { e: -7, s: 'moon', w: 'hull' }, { e: -7, s: 'hull', w: 'neon' }, { e: -7, s: 'hull', w: 'neon' },
 ];
 const holdTex = canvasTex(128, 128, (g, w, h) => {
   g.fillStyle = '#1e8fff'; g.fillRect(0, 0, w, h);

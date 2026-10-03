@@ -3,6 +3,20 @@ GROK LAND 2.0
 A bright, chunky low-poly 3D platformer with puzzles, enemies, coins and
 hidden stars. It runs from pure static files and needs no build step and no CDN.
 
+NEW: WORLDS 7 & 8 (8 worlds, 12 levels, 36 stars)
+---------------------------------------------------
+  - WORLD 7 CORAL COAST (7-1 Sunny Shore, 7-2 Tide Pools, 7-3 Sunken Reef):
+    jellyfish bounce pads, tide sandbars that sink and rise, water spouts you
+    ride up cliffs, turtle ferries, crabs, sea urchins, seagulls, a crate
+    puzzle and a coral-lamp puzzle.
+  - WORLD 8 STARLIGHT STATION (8-1 Moon Base, 8-2 Laser Labs, 8-3 Star Core):
+    low-gravity fields, boost pads that fling you along a dotted arc,
+    blinking laser fences, teleporter pads, aliens, mines, UFOs, a 4-light
+    power-cell puzzle and a crate puzzle.
+  - Every new level has 2-4 checkpoints, 3 hidden stars and works in
+    online co-op (with its own team zone) and with touch controls.
+  - The world map groups each world's levels; tap 7-1 / 7-2 / 7-3 chips.
+
 WHAT'S NEW IN 2.0
 -----------------
   - 3 new worlds (6 total): FROSTBITE PEAKS, GHOST MANOR, CLOCKWORK FACTORY,
