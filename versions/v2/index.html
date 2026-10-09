@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>/* Grok Arcade Hall of Game Records: archived old version 2.0 of grok-land. Saves are kept separate from the newest version. */
+(function(){var P='grokOldVersion.grok-land.v2:';try{var S=Storage.prototype,g=S.getItem,s=S.setItem,r=S.removeItem;function L(t){try{return t===window.localStorage;}catch(e){return false;}}
+S.getItem=function(k){return g.call(this,L(this)?P+k:k);};S.setItem=function(k,v){return s.call(this,L(this)?P+k:k,v);};S.removeItem=function(k){return r.call(this,L(this)?P+k:k);};}catch(e){}
+window.GROK_OLD_VERSION={repo:'grok-land',label:'v2',ver:'2.0',prefix:P};
+function badge(){try{var d=document.createElement('div');d.id='grokOldVerBadge';d.setAttribute('style','position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:2147483647;background:rgba(20,10,43,.92);color:#ffe14d;font:bold 12px/1.3 system-ui,sans-serif;padding:6px 12px;border-radius:14px;border:2px solid #ff4fd8;box-shadow:0 2px 10px rgba(0,0,0,.4);pointer-events:none;transition:opacity .8s;text-align:center;max-width:90vw');d.textContent='\uD83D\uDCFC OLD VERSION 2.0 \u00b7 from the Hall of Game Records \u00b7 separate save';document.body.appendChild(d);setTimeout(function(){d.style.opacity='0';},6000);setTimeout(function(){if(d.parentNode)d.parentNode.removeChild(d);},7000);}catch(e){}}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',badge);else badge();})();</script>
+<meta name="robots" content="noindex">
+
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#4fb6ff" />
+  <title>GROK LAND 2.0</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234fb6ff'/%3E%3Cpath d='M32 6l7.6 16.4 17.9 2-13.3 12.1 3.7 17.6L32 45.2 16.1 54.1l3.7-17.6L6.5 24.4l17.9-2z' fill='%23ffd23f' stroke='%23c77700' stroke-width='3'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="hud-left">
+      <div id="hearts"><span class="heart on">&#9829;</span><span class="heart on">&#9829;</span><span class="heart on">&#9829;</span></div>
+      <div class="pill" id="lives-pill"><span class="face-ico"></span><span class="x">&times;</span><b id="lives">5</b></div>
+    </div>
+    <div id="hud-right">
+      <div class="pill"><span class="coin-ico"></span><b id="coins">0</b></div>
+      <div class="pill"><span class="star-ico">&#9733;</span><b id="stars">0</b><span class="dim">/3</span></div>
+      <div class="pill hidden" id="key-pill"><span class="key-ico"><svg viewBox="0 0 32 16" width="30" height="15"><circle cx="7" cy="8" r="5.5" fill="none" stroke="#ffd23f" stroke-width="3.5"/><path d="M12 8h17M24 8v5M28 8v4" stroke="#ffd23f" stroke-width="3.5" stroke-linecap="round"/></svg></span>KEY</div>
+    </div>
+    <div id="level-name"></div>
+    <div id="toast"></div>
+    <div id="banner"><div id="banner-sub"></div><div id="banner-title"></div></div>
+  </div>
+
+  <button id="pause-btn" class="hidden" type="button" aria-label="Pause">II</button>
+  <button id="mute-btn" type="button" aria-label="Toggle sound" title="Sound (M)">&#9835;</button>
+
+  <div id="touch-ui" class="hidden">
+    <div id="joy-zone"><div id="joy-base"><div id="joy-stick"></div></div></div>
+    <div id="cam-zone"></div>
+    <div id="touch-btns">
+      <button type="button" id="btn-action">ACTION</button>
+      <button type="button" id="btn-jump">JUMP</button>
+    </div>
+  </div>
+
+  <div id="mp-arrows"></div>
+  <div id="mp-notice"></div>
+  <div id="fade"></div>
+
+  <div id="overlay" class="show">
+    <div class="card" id="title-card">
+      <div class="logo" aria-label="GROK LAND">
+        <span style="--c:#ff4d4d">G</span><span style="--c:#ffb627">R</span><span style="--c:#ffe14a">O</span><span style="--c:#59d65a">K</span>
+        <span class="sp"></span>
+        <span style="--c:#38b6ff">L</span><span style="--c:#8f6bff">A</span><span style="--c:#ff6bd6">N</span><span style="--c:#ff4d4d">D</span>
+        <span class="v2" id="v2-badge">2.0</span>
+      </div>
+      <p class="tag">A 3D PLATFORM ADVENTURE &middot; 6 WORLDS &middot; 18 HIDDEN STARS &middot; <span class="tstars">&#9733; <b id="title-stars">0 / 18</b></span></p>
+      <div class="title-btns">
+        <button id="play-btn" type="button" class="btn primary">PLAY</button>
+        <button id="map-btn" type="button" class="btn">WORLD MAP</button>
+      </div>
+      <button id="easy-btn" type="button" class="easy-btn">EASY MODE: <b>OFF</b></button>
+      <div class="controls desk-only">
+        <div><kbd>WASD</kbd>/<kbd>&larr;&uarr;&darr;&rarr;</kbd> move &nbsp; <kbd>Space</kbd> jump (again in air = double jump)</div>
+        <div><kbd>Shift</kbd>/<kbd>X</kbd> action: spin &middot; long jump (while running) &middot; ground pound (in air)</div>
+        <div><kbd>Q</kbd>/<kbd>E</kbd> or mouse drag: camera &nbsp; <kbd>Esc</kbd> pause &nbsp; <kbd>M</kbd> sound</div>
+      </div>
+      <div class="controls touch-only">
+        <div>Left stick: move &middot; <b>JUMP</b> (tap again in air = double jump)</div>
+        <div><b>ACTION</b>: spin &middot; long jump while running &middot; ground pound in air</div>
+        <div>Drag on the right side to turn the camera</div>
+      </div>
+    </div>
+
+    <div class="card hidden" id="map-card">
+      <div class="map-head"><p class="kicker">WORLD MAP</p><span id="map-total" class="map-total"></span></div>
+      <div id="world-map"></div>
+      <div id="map-info">
+        <div id="map-name"></div>
+        <div id="map-blurb"></div>
+        <div id="map-stars"></div>
+      </div>
+      <div class="btn-row">
+        <button id="map-play" type="button" class="btn primary">PLAY &#9654;</button>
+        <button id="map-back" type="button" class="btn ghost">BACK</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="pause-card">
+      <h2>PAUSED</h2>
+      <button id="resume-btn" type="button" class="btn primary">RESUME</button>
+      <button id="restart-btn" type="button" class="btn">RESTART LEVEL</button>
+      <button id="pause-title-btn" type="button" class="btn ghost">TITLE SCREEN</button>
+      <p class="small" id="pause-tip"></p>
+    </div>
+
+    <div class="card hidden" id="complete-card">
+      <p class="kicker" id="complete-kicker">WORLD 1</p>
+      <h2 id="complete-title">COURSE CLEAR!</h2>
+      <div id="complete-stars" class="big-stars"></div>
+      <div class="stats" id="complete-stats"></div>
+      <button id="next-btn" type="button" class="btn primary">NEXT WORLD</button>
+      <div class="btn-row">
+        <button id="replay-btn" type="button" class="btn">REPLAY</button>
+        <button id="complete-map-btn" type="button" class="btn">WORLD MAP</button>
+      </div>
+      <button id="complete-title-btn" type="button" class="btn ghost">TITLE SCREEN</button>
+    </div>
+
+    <div class="card hidden" id="mp-card">
+      <p class="kicker" id="mp-kicker">CO-OP</p>
+      <h2 id="mp-title">CO-OP</h2>
+      <p class="small" id="mp-msg"></p>
+      <div id="mp-roster"></div>
+      <div id="mp-btns"></div>
+    </div>
+
+    <div class="card hidden" id="gameover-card">
+      <h2 class="bad">GAME OVER</h2>
+      <p class="small">Out of lives! Grab a fresh set and try again.</p>
+      <button id="retry-btn" type="button" class="btn primary">RETRY WORLD</button>
+      <button id="go-title-btn" type="button" class="btn ghost">TITLE SCREEN</button>
+    </div>
+  </div>
+
+  <div id="loading">LOADING GROK LAND&hellip;</div>
+
+  <script src="three.min.js"></script>
+  <script src="grok-net.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
